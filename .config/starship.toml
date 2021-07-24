@@ -1,0 +1,23 @@
+add_newline = false
+
+[directory]
+truncate_to_repo = false
+
+[character]
+success_symbol = "[➜](bright-green)"
+error_symbol = "[➜](bright-red)"
+
+[rust]
+format = "via [🦀 $version](bold bright-red) "
+
+[git_status]
+style = "blue"
+
+[gcloud]
+disabled = true
+
+[aws]
+disabled = true
+
+[python]
+python_binary = "python3"
