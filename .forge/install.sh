@@ -74,6 +74,20 @@ fi
 
 ###############################################################################
 
+echo
+echo "STEP 4. Install pyenv and python."
+echo
+
+if has_cmd "pyenv"; then
+    echo "Installing pyenv..."
+    install pyenv
+    echo "Installing python..."
+    pyenv install 3.8.11
+    pyenv global 3.8.11
+fi
+
+###############################################################################
+
 # Install fish
 # Install alacritty
 # Install bat
