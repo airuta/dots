@@ -88,6 +88,25 @@ else
     echo "Skipping. Pyenv and python are already installed."
 fi
 
+###############################################################################
+
+echo
+echo "STEP 5. Install fish."
+echo
+
+if ! has_cmd "fish"; then
+    echo "Installing fish shell..."
+    install fish
+    echo "Installing oh my fish..."
+    curl -L https://get.oh-my.fish > install
+    fish install --path=~/.forge/omf --config=~/.config/omf
+    rm install
+    echo "Applying a theme..."
+    omf theme dracula
+else
+    echo "Skipping. Fish shell is already installed."
+fi
+
 fi
 
 ###############################################################################

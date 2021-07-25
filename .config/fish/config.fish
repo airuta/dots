@@ -1,12 +1,5 @@
 if status is-interactive
-    # Forge locations
-    set -gx CARGO_HOME ~/.forge/cargo
-    set -gx GOPATH ~/.forge/go
-    set -gx PYENV_ROOT $HOME/.forge/pyenv
-    # Path
-    fish_add_path $CARGO_HOME/bin
-    fish_add_path $GOPATH/bin
-    fish_add_path $PYENV_ROOT/bin
+    fish_vi_key_bindings
 end
 
 # Dotfiles
