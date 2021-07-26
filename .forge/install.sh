@@ -3,13 +3,11 @@
 ###############################################################################
 # 0. Script settings.
 
-CARGO_HOME="$HOME/.forge/cargo"
-RUSTUP_HOME="$HOME/.forge/rustup"
 OSTYPE=`uname`
 
 if [ "$OSTYPE" == "Darwin" ]; then
         if [ -n "$BREW_LOCAL" ]; then
-	    HOMEBREW_CASK_OPTS="--appdir=~/Applications --fontdir=~/Fonts"
+            HOMEBREW_CASK_OPTS="--appdir=~/Applications --fontdir=~/Fonts"
         fi
 fi
 
@@ -47,11 +45,15 @@ echo
 echo "STEP 2. Install rust and cargo."
 echo
 
+CARGO_HOME="$HOME/.forge/cargo"
+RUSTUP_HOME="$HOME/.forge/rustup"
 if ! has_cmd "rustup-init" || ! has_cmd "cargo"; then
     echo "Installing rustup-init..."
     install rustup-init
     echo "Installing rust..."
     rustup-init -y
+    echo "Installing rust-analyzer..."
+    install rust-analyzer
     echo "Running post-installation setup..."
     source ~/.forge/cargo/env
     mkdir -p ~/.config/fish/completions
@@ -105,8 +107,6 @@ if ! has_cmd "fish"; then
     omf theme dracula
 else
     echo "Skipping. Fish shell is already installed."
-fi
-
 fi
 
 ###############################################################################
