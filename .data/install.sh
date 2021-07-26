@@ -3,6 +3,12 @@
 ###############################################################################
 # 0. Script settings.
 
+XDG_DATA_HOME=$HOME/.data
+XDG_CONFIG_HOME=$HOME/.config
+XDG_STATE_HOME=$HOME/.state
+
+DATA=$XDG_DATA_HOME
+CONFIG=$XDG_CONFIG_HOME
 OSTYPE=`uname`
 
 if [ "$OSTYPE" == "Darwin" ]; then
@@ -45,8 +51,9 @@ echo
 echo "STEP 2. Install rust and cargo."
 echo
 
-CARGO_HOME="$HOME/.forge/cargo"
-RUSTUP_HOME="$HOME/.forge/rustup"
+CARGO_HOME="$DATA/cargo"
+RUSTUP_HOME="$DATA/rustup"
+
 if ! has_cmd "rustup-init" || ! has_cmd "cargo"; then
     echo "Installing rustup-init..."
     install rustup-init
@@ -55,9 +62,9 @@ if ! has_cmd "rustup-init" || ! has_cmd "cargo"; then
     echo "Installing rust-analyzer..."
     install rust-analyzer
     echo "Running post-installation setup..."
-    source ~/.forge/cargo/env
-    mkdir -p ~/.config/fish/completions
-    rustup completions fish > ~/.config/fish/completions/rustup.fish
+    source $DATA/cargo/env
+    mkdir -p $CONFIG/fish/completions
+    rustup completions fish > $CONFIG/fish/completions/rustup.fish
 else
     echo "Skipping. Cargo and rust are already installed."
 fi
@@ -101,7 +108,7 @@ if ! has_cmd "fish"; then
     install fish
     echo "Installing oh my fish..."
     curl -L https://get.oh-my.fish > install
-    fish install --path=~/.forge/omf --config=~/.config/omf
+    fish install --path=$DATA/omf --config=$CONFIG/omf
     rm install
     echo "Applying a theme..."
     omf theme dracula
@@ -111,7 +118,6 @@ fi
 
 ###############################################################################
 
-# Install fish
 # Install alacritty
 # Install bat
 # Install fonts
