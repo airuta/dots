@@ -84,7 +84,19 @@ fi
 ###############################################################################
 
 echo
-echo "STEP 4. Install pyenv and python."
+echo "STEP 4. Install zellij."
+echo
+
+if ! has_cmd "zellij"; then
+    cargo install zellij
+else
+    echo "Skipping. Zellij is already installed."
+fi
+
+###############################################################################
+
+echo
+echo "STEP 5. Install pyenv and python."
 echo
 
 if ! has_cmd "pyenv"; then
@@ -100,7 +112,7 @@ fi
 ###############################################################################
 
 echo
-echo "STEP 5. Install fish."
+echo "STEP 6. Install fish."
 echo
 
 if ! has_cmd "fish"; then
