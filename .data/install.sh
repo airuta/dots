@@ -130,6 +130,14 @@ fi
 
 ###############################################################################
 
+echo
+echo "STEP 7. Install fonts"
+echo
+
+if [ "$OSTYPE" == "Darwin" ]; then
+    brew tap homebrew/cask-fonts
+    brew install font-lekton-nerd-font
+fi
+
 # Install alacritty
 # Install bat
-# Install fonts
