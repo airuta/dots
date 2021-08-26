@@ -27,10 +27,6 @@
 ;; `load-theme' function. This is the default:
 (setq doom-theme 'doom-one)
 
-;; If you use `org' and don't want your org files in the default location below,
-;; change `org-directory'. It must be set before org loads!
-(setq org-directory "~/Drive/garden")
-
 ;; This determines the style of line numbers in effect. If set to `nil', line
 ;; numbers are disabled. For relative line numbers, set this to `relative'.
 (setq display-line-numbers-type 'relative)
@@ -46,11 +42,75 @@
 
 ;; Set up org mode
 (after! org
-  (setq org-todo-keywords '((sequence "NEXT" "TODO" "WAITING" "SOMEDAY" "PROJ" "|" "DONE" "CANCELED"))))
+  (dolist (face '(org-level-1 org-level-2 org-level-3 org-level-4 org-level-5))
+    (set-face-attribute face nil :height 1.0 :background nil :weight 'semi-light))
+  (setq! org-todo-keywords '((sequence "TODO" "NEXT" "WAITING" "SOMEDAY" "PROJ" "|" "DONE" "CANCELED"))
+         org-directory "~/Drive/org"
+         org-default-notes-file (concat org-directory "/inbox.org")
+         org-roam-directory "~/Drive/garden"
+         org-journal-dir "~/Drive/journal"
+         org-journal-date-prefix "#+TITLE: "
+         org-journal-time-prefix "* "
+         org-journal-date-format "%a %Y-%m-%d"
+         org-journal-file-format "%Y-%m-%d.org")
+  (setq org-agenda-files
+     (seq-filter
+       (lambda(x) (not (string-match "/code/" (file-name-directory x))))
+       (append
+         (list "~/Drive/org/inbox.org")
+         (directory-files-recursively "~/Drive/garden" "\\.org$")
+         (directory-files-recursively "~/Drive/journal" "\\.org$")
+         (directory-files-recursively "~/Drive/articles" "\\.org$")
+         (directory-files-recursively "~/Drive/books" "\\.org$")
+         (directory-files-recursively "~/Drive/courses" "\\.org$"))))
+  (setq org-capture-templates
+    '(("i" "Inbox" entry  (file org-default-notes-file) "* TODO %?"
+       :prepend t
+       :kill-buffer t)))
+  (setq org-agenda-prefix-format
+    '((agenda . " %i %-12:c%?-12t% s")
+      (todo   . " ")
+      (tags   . " %i %-12:c")
+      (search . " %i %-12:c"))))
+
+;; Set up capturing
+(defun org-capture-inbox ()
+  (interactive)
+  (call-interactively 'org-store-link)
+  (org-capture nil "i"))
+(map!
+  :after org
+  :leader
+  :desc "Capture"
+  "x" #'org-capture-inbox)
+
+;; Add org-transclusion
+;; In ~/.doom.d/config.el
+(use-package! org-transclusion
+  :defer
+  :after org
+  :init
+  (map!
+    :map global-map "<f12>" #'org-transclusion-add
+    :leader
+    :prefix "n"
+    :desc "Org Transclusion Mode" "t" #'org-transclusion-mode))
+
+;; Set up todo highlighting colors
+(after! hl-todo
+  (setq hl-todo-keyword-faces
+    '(("TODO"      . "#E6B168")
+      ("NEXT"      . "#FC5358")
+      ("WAITING"   . "#439EEA")
+      ("SOMEDAY"   . "#B05ACC")
+      ("PROJ"      . "#CF7039")
+      ("DONE"      . "#88B453")
+      ("CANCELED"  . "#998CD9"))))
+
 
 ;; Change font settings
 (setq doom-font (font-spec :family "Lekton Nerd Font Mono" :size 14 :weight 'semi-light))
-(setq-default line-spacing 0.5)
+(setq-default line-spacing 0.7)
 
 ;; Here are some additional functions/macros that could help you configure Doom:
 ;;
