@@ -27,6 +27,10 @@
 ;; `load-theme' function. This is the default:
 (setq doom-theme 'doom-one)
 
+;; Change font settings
+(setq doom-font (font-spec :family "Lekton Nerd Font Mono" :size 14 :weight 'semi-light))
+(setq-default line-spacing 0.7)
+
 ;; This determines the style of line numbers in effect. If set to `nil', line
 ;; numbers are disabled. For relative line numbers, set this to `relative'.
 (setq display-line-numbers-type 'relative)
@@ -35,6 +39,16 @@
 (after! which-key
   (setq! which-key-idle-delay 0.1
          which-key-idle-secondary-delay 0.2))
+
+;; Colors for highlights
+(setq todo-colors
+  '(("TODO"      . "#E6B168")
+    ("NEXT"      . "#FC5358")
+    ("WAITING"   . "#439EEA")
+    ("SOMEDAY"   . "#B05ACC")
+    ("PROJ"      . "#CF7039")
+    ("DONE"      . "#88B453")
+    ("CANCELED"  . "#998CD9")))
 
 ;; Remove icons from treemacs
 (after! treemacs
@@ -45,6 +59,7 @@
   (dolist (face '(org-level-1 org-level-2 org-level-3 org-level-4 org-level-5))
     (set-face-attribute face nil :height 1.0 :background nil :weight 'semi-light))
   (setq! org-todo-keywords '((sequence "TODO" "NEXT" "WAITING" "SOMEDAY" "PROJ" "|" "DONE" "CANCELED"))
+         org-todo-keyword-faces todo-colors
          org-directory "~/Drive/org"
          org-default-notes-file (concat org-directory "/inbox.org")
          org-roam-directory "~/Drive/garden"
@@ -98,19 +113,33 @@
 
 ;; Set up todo highlighting colors
 (after! hl-todo
-  (setq hl-todo-keyword-faces
-    '(("TODO"      . "#E6B168")
-      ("NEXT"      . "#FC5358")
-      ("WAITING"   . "#439EEA")
-      ("SOMEDAY"   . "#B05ACC")
-      ("PROJ"      . "#CF7039")
-      ("DONE"      . "#88B453")
-      ("CANCELED"  . "#998CD9"))))
+  (setq hl-todo-keyword-faces todo-colors))
 
+;; Projectile setup
+(after! projectile
+  (setq projectile-project-search-path "~/Drive/forge"))
 
-;; Change font settings
-(setq doom-font (font-spec :family "Lekton Nerd Font Mono" :size 14 :weight 'semi-light))
-(setq-default line-spacing 0.7)
+;; Set up rust
+(after! lsp-rust
+  (setq! lsp-rust-server 'rust-analyzer
+         lsp-rust-analyzer-server-display-inlay-hints t
+         lsp-rust-analyzer-cargo-watch-enable t
+         lsp-rust-analyzer-cargo-watch-command "clippy"
+         lsp-rust-analyzer-proc-macro-enable t
+         lsp-rust-analyzer-cargo-load-out-dirs-from-check t
+         lsp-rust-analyzer-display-chaining-hints t
+         lsp-rust-analyzer-display-parameter-hints t))
+
+;; TabNine setup
+(use-package! company-tabnine
+  :after company
+  :config
+  (cl-pushnew 'company-tabnine (default-value 'company-backends)))
+
+(after! company
+  (setq! +lsp-company-backends '(company-tabnine :separate company-capf company-yasnippet)
+         company-show-numbers t
+         company-idle-delay 0))
 
 ;; Here are some additional functions/macros that could help you configure Doom:
 ;;
