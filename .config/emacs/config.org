@@ -1,0 +1,319 @@
+#+TITLE: Airuta's Emacs Config
+#+AUTHOR: Mori Airuta
+#+STARTUP: overview
+
+* PACKAGE MANAGEMENT
+** Initialize package.el
+#+begin_src emacs-lisp
+  (require 'package)                                       ;; Load package management functions
+  (setq package-archives                                   ;; Set up package repositories
+      '(("melpa" . "https://melpa.org/packages/")
+        ("org" . "https://orgmode.org/elpa/")
+        ("elpa" . "https://elpa.gnu.org/packages/")))
+  (package-initialize)                                     ;; Initialize package system
+  (unless package-archive-contents                         ;; Pull package archive on the first startup
+  (package-refresh-contents))
+#+end_src
+** Install use-package
+#+begin_src emacs-lisp
+  (unless (package-installed-p 'use-package)               ;; Install use-package
+  (package-install 'use-package))
+  (require 'use-package)                                   ;; Load use-package
+  (setq use-package-always-ensure t)                       ;; Always load missing packages before use
+#+end_src
+   
+* UI & BEHAVIOR
+** Reset to sane defaults
+#+begin_src emacs-lisp
+  (setq inhibit-startup-message t)                         ;; Inhibit startup screen
+  (scroll-bar-mode -1)                                     ;; Disable certical scrollbar
+  (tool-bar-mode -1)                                       ;; Disable the toolbar
+  (tooltip-mode -1)                                        ;; Disable visual tooltips
+  (setq tooltip-use-echo-area t)                           ;; Use echo area to show tooltips
+  (menu-bar-mode -1)                                       ;; Disable the menu bar
+  (setq ring-bell-function 'ignore)                        ;; Disable ring bell
+#+end_src
+** Reset to sane behavior
+#+begin_src emacs-lisp
+  (setq make-backup-files nil)                             ;; Disable backups
+  (setq auto-save-default nil)                             ;; Disable autosave
+#+end_src
+** Set up the font
+#+begin_src emacs-lisp
+  (setq-default line-spacing 0.5)                          ;; Change line height
+  (set-face-attribute 'default nil                         ;; Set font parameters
+                      :font "Lekton Nerd Font Mono"
+                      :height 140
+                      :weight 'semi-light)
+#+end_src
+** Set up presentation
+#+begin_src emacs-lisp
+  (toggle-truncate-lines 1)                                ;; Truncate long lines instead of wrapping
+  (auto-fill-mode 0)                                       ;; Disable line break on going beyond last column
+  (setq display-line-numbers-type 'relative)               ;; Make line numbers relative to the current line
+  (global-display-line-numbers-mode 1)                     ;; Display line numbers
+  (add-hook 'org-mode-hook                                 ;; Display line numbers in org mode as well
+            '(lambda () (display-line-numbers-mode 1)))
+  (column-number-mode)                                     ;; Show column number in modeline
+  (global-hl-line-mode t)                                  ;; Highlight current line
+#+end_src
+** Disable line numbers for some modes
+#+begin_src emacs-lisp
+  (dolist
+    (mode '(org-mode-hook term-mode-hook shell-mode-hook eshell-mode-hook))
+    (add-hook mode
+             (lambda () (display-line-numbers-mode 0))))
+#+end_src
+** Set up indentation
+#+begin_src emacs-lisp
+  (setq-default tab-width 4)                               ;; Most comfortable setting
+  (setq-default standard-indent 4)                         ;; The same for indents
+  (setq-default indent-tabs-mode nil)                      ;; No tabs (apart from golang)
+  (setq-default backward-delete-char-untabify-method nil)  ;; Delete one character whatever it is
+#+end_src
+** Set up theme
+#+begin_src emacs-lisp
+  (use-package solaire-mode
+    :init (solaire-global-mode 1))
+  (use-package doom-themes
+    :config
+    (setq doom-themes-enable-bold nil                      ;; if nil, bold is universally disabled
+          doom-themes-enable-italic t)                     ;; if nil, italics is universally disabled
+    (load-theme 'doom-snazzy t)
+    (doom-themes-org-config))                              ;; Corrects (and improves) org-mode's native fontification
+#+end_src
+* KEYBINDINGS
+** Install whichkey
+#+begin_src emacs-lisp
+  (use-package which-key
+    :diminish                                             ;; Hide the mode
+    :init (which-key-mode)                                ;; Activate once it is loaded
+    :config
+    (setq which-key-idle-delay 0)                         ;; Show the popup immediately
+    (setq which-key-idle-secondary-delay 0))              ;; Show the secondary popup immediately
+#+end_src
+** General keybindings
+#+begin_src emacs-lisp
+            (use-package general
+              :config
+              (general-evil-setup t)
+              (general-create-definer rune/leader-keys
+                :keymaps '(normal insert visual emacs)
+                :prefix "SPC"
+                :global-prefix "C-SPC")
+              (rune/leader-keys
+                ;; org agenda
+                "a"  '(:ignore t :which-key "agenda")
+                "aa" '(org-agenda :which-key "menu")
+                "al" '(org-agenda-list :which-key "list")
+                ;; org capture
+                "c"  '(:ignore t :which-key "capture")
+                "cc" '(org-capture :which-key "menu")
+                "ct" '((lambda () (interactive) (call-interactively 'org-store-link) (org-capture nil "i")) :which-key "task")
+                "ci" '((lambda () (interactive) (call-interactively 'org-store-link) (org-capture nil "i")) :which-key "idea")
+                "cn" '((lambda () (interactive) (call-interactively 'org-store-link) (org-capture nil "n")) :which-key "note")
+                "cq" '((lambda () (interactive) (call-interactively 'org-store-link) (org-capture nil "q")) :which-key "quote")
+                ;; other option to consider:
+                ;;   - journal (with org-journal)
+                ;;   - code snippet
+                ;; org schedule
+                "cM" '((lambda () (interactive) (call-interactively 'org-store-link) (org-capture nil "M")) :which-key "meeting")
+                ;; org task management
+                "or" '(org-refile :which-key "refile")
+                "os" '(org-schedule :which-key "schedule")
+                "od" '(org-deadline :which-key "deadline")
+                ;; reload
+                "r"  '(:ignore t :which-key "reload")
+                "rr" '((lambda () (interactive) (load-file (expand-file-name "init.el" user-emacs-directory))) :which-key "reload emacs config")
+                "ro" '(org-mode-restart :which-key "restart org mode")
+                ;; files
+                "f"  '(:ignore t :which-key "file")
+                "ff" '(counsel-find-file :which-key "find file")
+                "fc" '((lambda () (interactive) (find-file (expand-file-name "config.org" user-emacs-directory))) :which-key "open config")
+                "fr" '(counsel-recentf :which-key "recent file")
+                ;; buffers
+                "b"  '(:ignore t :which-key "buffer")
+                "bb" '(counsel-ibuffer :which-key "list buffers")
+                "bk" '(kill-this-buffer :which-key "kill buffer")
+                ;; help
+                "h"  '(:ignore t :which-key "help")
+                "hf" '(describe-function :which-key "describe function")
+                "hv" '(describe-variable :which-key "describe variable")
+                ;; toggles
+                "t"  '(:ignore t :which-key "toggles")
+                "to" '(org-num-mode :which-key "org heading numbers")))
+#+end_src
+   
+* COMPLETION
+** Install ivy
+#+begin_src emacs-lisp
+  (use-package ivy
+    :diminish
+    :bind (("C-s" . swiper)
+           :map ivy-minibuffer-map
+           ("TAB" . ivy-alt-done)
+           ("C-j" . ivy-next-line)
+           ("C-k" . ivy-previous-line))
+    :config
+    (ivy-mode 1))
+#+end_src
+** Install ivy-rich
+#+begin_src emacs-lisp
+  (use-package ivy-rich
+    :init (ivy-rich-mode 1))
+#+end_src
+** Improve ivy with flx
+#+begin_src emacs-lisp
+  (use-package flx                                         ;; Improves sorting for fuzzy-matched results
+    :after ivy
+    :init
+    (setq ivy-flx-limit 10000))
+#+end_src
+** Install counsel
+#+begin_src emacs-lisp
+  (use-package counsel
+    :bind (("M-x" . counsel-M-x)
+           ("C-x b" . counsel-ibuffer)
+           ("C-x C-f" . counsel-find-file)))
+#+end_src
+
+* EVIL MODE
+** Install evil mode
+#+begin_src emacs-lisp
+  (use-package evil                                        ;; Install evil mode for text editing
+    :init
+    (setq evil-want-keybinding nil)                        ;; Do not use evil's default keybindings
+    (setq evil-want-C-u-scroll t)                          ;; Scroll up instead of universal argument
+    (setq evil-set-undo-system 'undo-tree)
+    (evil-mode 1)
+    (define-key evil-insert-state-map (kbd "C-g") 'evil-normal-state)
+    ;; Use visual line motions even outside of visual-line-mode buffers
+    (evil-global-set-key 'motion "j" 'evil-next-visual-line)
+    (evil-global-set-key 'motion "k" 'evil-previous-visual-line))
+  (use-package evil-collection                             ;; Install evil mode for everything else
+    :after evil
+    :config (evil-collection-init))
+#+end_src
+
+* PROJECTILE
+** Install projectile
+#+begin_src emacs-lisp
+  (use-package projectile
+    :config
+    (projectile-global-mode 1))
+#+end_src
+
+* CODING
+** UI improvements
+#+begin_src emacs-lisp
+  (use-package rainbow-delimiters
+    :hook (prog-mode . rainbow-delimiters-mode))
+#+end_src
+
+* ORG
+** Set up variables
+#+begin_src emacs-lisp
+  (setq drive-folder "~/Drive")
+  (setq todo-colors                                       ;; Highlight colors for org-mode and hl-mode
+        '(("TODO"      . "#E6B168")
+          ("NEXT"      . "#FC5358")
+          ("WAITING"   . "#439EEA")
+          ("SOMEDAY"   . "#CF7039 ")
+          ("DONE"      . "#88B453")
+          ("CANCELED"  . "#998CD9")))
+#+end_src
+** Set up org mode
+#+begin_src emacs-lisp
+  (defun rune/org-mode-setup ()
+    (org-indent-mode)                                      ;; Indent text according to outline structure
+    (setq evil-auto-indent nil))                           ;; Don't auto-indent on o and O, let org decide
+  (use-package org
+    :hook (org-mode . rune/org-mode-setup)
+    :config
+    (setq org-ellipsis " ▾")
+    (setq org-todo-keywords '((sequence "RAW" "TODO" "NEXT" "WAITING" "SOMEDAY" "|" "DONE" "CANCELED"))
+          org-todo-keyword-faces todo-colors
+          org-fontify-whole-heading-line t
+          org-directory "~/Drive"
+          org-roam-directory (concat org-directory "/garden")))
+#+end_src
+** Set up org agenda
+#+begin_src emacs-lisp
+  (setq org-agenda-files
+      (append
+        (mapcar
+          (lambda (file) (expand-file-name file drive-folder))
+         '("tasks.org" "projects.org" "events.org" "habits.org"))
+        (seq-filter
+          (lambda(x) (not (string-match "/code/" (file-name-directory x))))
+          (directory-files-recursively (concat drive-folder "/tracker") "\\.org$"))))
+  (setq org-agenda-start-with-log-mode t)                     ;; Show "done" log
+  (setq org-log-done 'time)                                   ;; Track time when "done"
+  (setq org-log-into-drawer t)                                ;; Collapsible log
+  (setq org-agenda-hide-tags-regexp ".")                      ;; Hide tags
+  (setq org-agenda-prefix-format
+      '((agenda . " %i %-12:c%?-12t% s")
+        (todo   . " ")
+        (tags   . " %i %-12:c")
+        (search . " %i %-12:c")))
+#+end_src
+** Set up org capture
+#+begin_src emacs-lisp
+    (setq org-default-notes-file (concat org-directory "/inbox.org"))
+    (setq org-capture-templates
+      '(("t" "Task" entry  (file org-default-notes-file) "* %? :task:" :prepend t)
+        ("i" "Idea" entry (file org-default-notes-file) "* :idea:\n%?")
+        ("n" "Note" entry (file org-default-notes-file) "* %? :note:")
+        ("q" "Quote" entry (file org-default-notes-file) "* %a :quote:\n%?")
+        ("M" "Meeting" entry (file org-defauilt-notes-file) "* %? :meeting:")))
+    (add-hook 'org-capture-mode-hook 'delete-other-windows)
+#+end_src
+** Set up refiling
+#+begin_src emacs-lisp
+  (setq org-projects-file (concat org-directory "/projects.org")
+        org-events-file (concat org-directory "/events.org")
+        org-incubation-file (concat org-directory "/incubate.org")
+        org-tasks-file (concat org-directory "/tasks.org"))
+  (setq org-refile-use-outline-path 'file
+        org-outline-path-complete-in-steps t
+        org-refile-allow-creating-parent-nodes t)
+#+end_src
+** Set up org journal
+#+begin_src emacs-lisp
+  (setq org-journal-dir (concat org-directory "/journal")
+        org-journal-date-prefix "#+TITLE: "
+        org-journal-time-prefix "* "
+        org-journal-date-format "%a %Y-%m-%d"
+        org-journal-file-format "%Y-%m-%d.org")
+#+end_src
+* HELP
+** Install and configure helpful
+#+begin_src emacs-lisp
+  (use-package helpful
+    :custom
+    (counsel-describe-function-function #'helpful-callable)
+    (counsel-describe-variable-function #'helpful-variable)
+    :bind
+    ([remap describe-function] . counsel-describe-function)
+    ([remap describe-command] . helpful-command)
+    ([remap describe-variable] . counsel-describe-variable)
+    ([remap describe-key] . helpful-key))
+#+end_src
+   
+* MISCELLANEOUS
+** Undo tree
+#+begin_src emacs-lisp
+  (use-package undo-tree :diminish)                        ;; Replace emacs confusing undo with undo tree
+  (global-undo-tree-mode)                                  ;; Enable undo tree globally
+#+end_src
+** Dashboard
+#+begin_src emacs-lisp
+  (use-package dashboard
+    :init
+    (setq dashboard-startup-banner nil)
+    (setq dashboard-center-content t)
+    (setq dashboard-show-shortcuts nil)
+    (setq dashboard-set-footer nil)
+    :config
+    (dashboard-setup-startup-hook))
+#+end_src
