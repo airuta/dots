@@ -16,3 +16,7 @@ fish_add_path $GOPATH/bin
 set -gx PYENV_ROOT $XDG_DATA_HOME/pyenv
 fish_add_path $PYENV_ROOT/bin
 set -xg PYTHONDONTWRITEBYTECODE 1
+
+# Other stuff
+set -gx DOOMDIR $XDG_CONFIG_HOME/doom
+set -gx HOMEBREW_CASK_OPTS --appdir=~/Applications --fontdir=~/Fonts
