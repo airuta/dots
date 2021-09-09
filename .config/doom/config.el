@@ -6,8 +6,8 @@
 
 ;; Some functionality uses this to identify you, e.g. GPG configuration, email
 ;; clients, file templates and snippets.
-(setq user-full-name "Valerii Praid"
-      user-mail-address "valerii.praid@gmail.com")
+(setq user-full-name "John Doe"
+      user-mail-address "john@doe.com")
 
 ;; Doom exposes five (optional) variables for controlling fonts in Doom. Here
 ;; are the three important ones:
@@ -27,119 +27,14 @@
 ;; `load-theme' function. This is the default:
 (setq doom-theme 'doom-one)
 
-;; Change font settings
-(setq doom-font (font-spec :family "Lekton Nerd Font Mono" :size 14 :weight 'semi-light))
-(setq-default line-spacing 0.7)
+;; If you use `org' and don't want your org files in the default location below,
+;; change `org-directory'. It must be set before org loads!
+(setq org-directory "~/org/")
 
 ;; This determines the style of line numbers in effect. If set to `nil', line
 ;; numbers are disabled. For relative line numbers, set this to `relative'.
-(setq display-line-numbers-type 'relative)
+(setq display-line-numbers-type t)
 
-;; Make which-key more responsive
-(after! which-key
-  (setq! which-key-idle-delay 0.1
-         which-key-idle-secondary-delay 0.2))
-
-;; Colors for highlights
-(setq todo-colors
-  '(("TODO"      . "#E6B168")
-    ("NEXT"      . "#FC5358")
-    ("WAITING"   . "#439EEA")
-    ("SOMEDAY"   . "#B05ACC")
-    ("PROJ"      . "#CF7039")
-    ("DONE"      . "#88B453")
-    ("CANCELED"  . "#998CD9")))
-
-;; Remove icons from treemacs
-(after! treemacs
-  (setq treemacs-no-png-images t))
-
-;; Set up org mode
-(after! org
-  (dolist (face '(org-level-1 org-level-2 org-level-3 org-level-4 org-level-5))
-    (set-face-attribute face nil :height 1.0 :background nil :weight 'semi-light))
-  (setq! org-todo-keywords '((sequence "TODO" "NEXT" "WAITING" "SOMEDAY" "PROJ" "|" "DONE" "CANCELED"))
-         org-todo-keyword-faces todo-colors
-         org-directory "~/Drive/org"
-         org-default-notes-file (concat org-directory "/inbox.org")
-         org-roam-directory "~/Drive/garden"
-         org-journal-dir "~/Drive/journal"
-         org-journal-date-prefix "#+TITLE: "
-         org-journal-time-prefix "* "
-         org-journal-date-format "%a %Y-%m-%d"
-         org-journal-file-format "%Y-%m-%d.org")
-  (setq org-agenda-files
-     (seq-filter
-       (lambda(x) (not (string-match "/code/" (file-name-directory x))))
-       (append
-         (list "~/Drive/org/inbox.org")
-         (directory-files-recursively "~/Drive/garden" "\\.org$")
-         (directory-files-recursively "~/Drive/journal" "\\.org$")
-         (directory-files-recursively "~/Drive/articles" "\\.org$")
-         (directory-files-recursively "~/Drive/books" "\\.org$")
-         (directory-files-recursively "~/Drive/courses" "\\.org$"))))
-  (setq org-capture-templates
-    '(("i" "Inbox" entry  (file org-default-notes-file) "* TODO %?"
-       :prepend t
-       :kill-buffer t)))
-  (setq org-agenda-prefix-format
-    '((agenda . " %i %-12:c%?-12t% s")
-      (todo   . " ")
-      (tags   . " %i %-12:c")
-      (search . " %i %-12:c"))))
-
-;; Set up capturing
-(defun org-capture-inbox ()
-  (interactive)
-  (call-interactively 'org-store-link)
-  (org-capture nil "i"))
-(map!
-  :after org
-  :leader
-  :desc "Capture"
-  "x" #'org-capture-inbox)
-
-;; Add org-transclusion
-;; In ~/.doom.d/config.el
-(use-package! org-transclusion
-  :defer
-  :after org
-  :init
-  (map!
-    :map global-map "<f12>" #'org-transclusion-add
-    :leader
-    :prefix "n"
-    :desc "Org Transclusion Mode" "t" #'org-transclusion-mode))
-
-;; Set up todo highlighting colors
-(after! hl-todo
-  (setq hl-todo-keyword-faces todo-colors))
-
-;; Projectile setup
-(after! projectile
-  (setq projectile-project-search-path "~/Drive/forge"))
-
-;; Set up rust
-(after! lsp-rust
-  (setq! lsp-rust-server 'rust-analyzer
-         lsp-rust-analyzer-server-display-inlay-hints t
-         lsp-rust-analyzer-cargo-watch-enable t
-         lsp-rust-analyzer-cargo-watch-command "clippy"
-         lsp-rust-analyzer-proc-macro-enable t
-         lsp-rust-analyzer-cargo-load-out-dirs-from-check t
-         lsp-rust-analyzer-display-chaining-hints t
-         lsp-rust-analyzer-display-parameter-hints t))
-
-;; TabNine setup
-(use-package! company-tabnine
-  :after company
-  :config
-  (cl-pushnew 'company-tabnine (default-value 'company-backends)))
-
-(after! company
-  (setq! +lsp-company-backends '(company-tabnine :separate company-capf company-yasnippet)
-         company-show-numbers t
-         company-idle-delay 0))
 
 ;; Here are some additional functions/macros that could help you configure Doom:
 ;;
