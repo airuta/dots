@@ -12,7 +12,7 @@ User information.
 
 Drive folder.
 #+begin_src emacs-lisp
-(setq drive-folder "~/Drive")
+(setq drive-folder "~/Dropbox")
 #+end_src
 
 * UI & BEHAVIOR
@@ -96,6 +96,12 @@ Set up projectile default path.
 
 * ORG MODE
 
+Make property inheritance work.
+#+begin_src emacs-lisp
+(after! org
+  (load! "lisp/props"))
+#+end_src
+
 Replace boring org bullet with trigrams.
 #+begin_src emacs-lisp
 (use-package! org-superstar
@@ -116,19 +122,18 @@ Basic definitions.
 #+begin_src emacs-lisp
 (setq org-directory (concat drive-folder "/org")
       org-default-notes-file (concat org-directory "/inbox.org")
+      org-roam-directory (concat org-directory "/cortex")
       ;; Files
-      org-inbox-file org-default-notes-file
+      org-inbox-file      org-default-notes-file
       org-notes-file      (concat org-directory "/notes.org")
       org-events-file     (concat org-directory "/events.org")
       org-tasks-file      (concat org-directory "/tasks.org")
       org-habits-file     (concat org-directory "/habits.org")
+      org-list-file       (concat org-directory "/list.org")
       ;; Dirs
+      org-cortex-dir      org-roam-directory
+      org-templates-dir   (concat org-cortex-dir "/templates/")
       org-incubator-dir   (concat org-directory "/incubator/")
-      org-journal-dir     (concat org-directory "/journal/")
-      org-books-dir       (concat org-directory "/books/")
-      org-courses-dir     (concat org-directory "/courses/")
-      org-projects-dir    (concat org-directory "/projects/")
-      org-tech-dir        (concat org-directory "/tech/")
       org-ledger-dir      (concat org-directory "/ledger/"))
 #+end_src
 
@@ -138,8 +143,9 @@ Set up go-to keybindings.
       :prefix ("r f" . "files")
       :desc "inbox"    :n "x" (cmd! (find-file org-inbox-file))
       :desc "tasks"    :n "t" (cmd! (find-file org-tasks-file))
-      :desc "tasks"    :n "e" (cmd! (find-file org-events-file))
+      :desc "events"   :n "e" (cmd! (find-file org-events-file))
       :desc "habits"   :n "h" (cmd! (find-file org-habits-file))
+      :desc "list"     :n "l" (cmd! (find-file org-list-file))
       :desc "projects" :n "P" (cmd! (dired org-projects-dir))
       :desc "books"    :n "B" (cmd! (dired org-books-dir))
       :desc "courses"  :n "C" (cmd! (dired org-courses-dir))
@@ -151,14 +157,14 @@ Set up go-to keybindings.
 Define some keys for convenience.
 #+begin_src emacs-lisp
 (map! :desc "agenda"     :m "C-c a" #'org-agenda
-      :desc "capture"    :m "C-c c" #'org-capture
       :desc "prev-hl"    :m "C-k"   #'org-previous-visible-heading
       :desc "next-hl"    :m "C-j"   #'org-next-visible-heading)
 
 (map! :map org-mode-map
       :desc "store link" :n "C-c l" #'org-store-link
       :desc "execute"    :n "C-c x" #'ma/toggle-exec
-      :desc "complete"   :n "C-c d" (cmd! (org-todo "DONE"))
+      :desc "complete"   :n "C-c d" (cmd! (ma/clock-out) (org-todo "DONE"))
+      :desc "hold"       :n "C-c h" (cmd! (ma/clock-out) (org-todo "HOLD"))
       :desc "schedule"   :n "C-c s" #'org-schedule
       :desc "deadline"   :n "C-c l" #'org-deadline
       :desc "tag"        :n "C-c t" #'org-ctrl-c-ctrl-c
@@ -177,9 +183,10 @@ Define some keys for convenience.
 
 Org mode todo items keywords.
 #+begin_src emacs-lisp
-(setq org-todo-keywords '((sequence "TODO(t)" "NEXT(n)" "HOLD(h)" "EXEC(e)" "|" "DONE(d)" "CANCELED(c)"))
-      org-todo-keyword-faces todo-colors
-      org-enforce-todo-dependencies t)
+(after! org
+  (setq org-todo-keywords '((sequence "TODO(t)" "NEXT(n)" "HOLD(h)" "EXEC(e)" "|" "DONE(d)" "CANCELED(c)"))
+        org-todo-keyword-faces todo-colors
+        org-enforce-todo-dependencies t))
 #+end_src
 
 Toggle NEXT and EXEC states.
@@ -187,8 +194,9 @@ Toggle NEXT and EXEC states.
 (defun ma/toggle-exec ()
   (interactive)
   (let ((todo-state (org-get-todo-state)))
-    (cond ((equal todo-state "NEXT") (org-todo "EXEC"))
-          ((equal todo-state "EXEC") (org-todo "NEXT")))))
+    (cond ((equal todo-state "NEXT") (org-todo "EXEC") (org-clock-in))
+          ((equal todo-state "HOLD") (org-todo "EXEC") (org-clock-in))
+          ((equal todo-state "EXEC") (org-todo "NEXT") (org-clock-out)))))
 #+end_src
 
 Define helper functions.
@@ -200,7 +208,7 @@ Define helper functions.
   (member tag (org-get-tags)))
 #+end_src
 
-Define hooks.
+I want my hooks to run in specific files only. This macro will automate file name checking.
 #+begin_src emacs-lisp
 (defvar ma/todo-completion-files nil)
 
@@ -212,7 +220,7 @@ Define hooks.
       (interactive) (apply ,fn rest))))
 #+end_src
 
-We need a way to automatically make next item "NEXT" when the current one changes to "DONE".
+I need a way to automatically make next item become "NEXT" when the current one changes to "DONE".
 #+begin_src emacs-lisp
 (defun ma/complete-and-continue ()
   "Switch current heading to DONE and next to NEXT."
@@ -223,44 +231,35 @@ We need a way to automatically make next item "NEXT" when the current one change
       (org-todo "NEXT"))))
 #+end_src
 
-We need to auto-done parents when all childrern are "DONE" or checked.
+I need to auto-done parents when all childrern are "DONE" or checked.
 #+begin_src emacs-lisp
 (defun ma/summary-todo (n-done n-not-done)
   "Switch entry to DONE when all subentries are done."
   (when (= n-not-done 0) (org-todo "DONE")))
 #+end_src
 
-We need to set the next sibling to "NEXT" when the current one is "DONE".
+I need to set the next sibling to "NEXT" when the current one is "DONE".
 #+begin_src emacs-lisp
 (defun ma/complete (change)
   (let ((from-state (plist-get change :from))
         (to-state (plist-get change :to)))
     (when (and (member from-state '("NEXT" "EXEC")) (equal to-state "DONE"))
-      (message "CHANGE: %s" change)
       (unless (ma/is-top-level)
         (ma/complete-and-continue)))))
 #+end_src
 
-Use what we defined in the todo hooks.
+Use what I defined in the todo hooks.
 #+begin_src emacs-lisp
 (setq ma/todo-completion-files '("tasks.org"))
-(add-hook 'org-after-todo-statistics-hook (todo-completion! 'ma/summary-todo))
-(add-hook 'org-trigger-hook (todo-completion! 'ma/complete))
+
+(after! org
+  (add-hook 'org-after-todo-statistics-hook (todo-completion! 'ma/summary-todo))
+  (add-hook 'org-trigger-hook (todo-completion! 'ma/complete)))
 #+end_src
 
-We need property inheritance for ordered tasks to work.
+I need property inheritance for ordered tasks to work.
 #+begin_src emacs-lisp
 (setq org-use-property-inheritance '("ORDERED" "SCHEDULED"))
-#+end_src
-
-*** Journal
-
-Enable org-journal.
-#+begin_src emacs-lisp
-(setq org-journal-date-prefix "#+TITLE: "
-      org-journal-time-prefix "* "
-      org-journal-date-format "%a %Y-%m-%d"
-      org-journal-file-format "%Y-%m-%d.org")
 #+end_src
 
 *** Habits
@@ -281,23 +280,34 @@ Enable org-habit.
 
 Set up org-agenda.
 #+begin_src emacs-lisp
-(setq org-agenda-files
-      (seq-filter
-       (lambda(x) (not (string-match "/code/" (file-name-directory x))))
-       (append
-        (list org-tasks-file org-habits-file org-events-file)
-        (directory-files-recursively org-books-dir "\\.org$")
-        (directory-files-recursively org-courses-dir "\\.org$")
-        (directory-files-recursively org-projects-dir "\\.org$"))))
+(defvar ma/roam-agenda-tags
+  '("book" "course" "project" "note"))
 
-(setq org-agenda-start-day nil ; Today
-      org-agenda-span 'day     ; Only one day in overview
-      org-agenda-dim-blocked-tasks 'dimmed
-      org-agenda-start-with-log-mode t
-      org-agenda-time-grid `((daily today)
-                             ,(mapcar (lambda (time) (* 100 time)) (number-sequence 0 24))
-                             ""
-                             "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"))
+(defun ma/org-roam-filter-by-tag (tags)
+  (lambda (node)
+    (funcall #'or
+           (mapcar (lambda (tag) (member tag (org-roam-node-tags node)))
+                   tags))))
+
+(defun ma/org-roam-list-notes-by-tag (tags)
+  (mapcar #'org-roam-node-file
+          (seq-filter
+           (ma/org-roam-filter-by-tag tags)
+           (org-roam-node-list))))
+
+(after! org
+  (setq org-agenda-files
+        (append
+         (list org-tasks-file org-habits-file org-events-file org-list-file)
+         (ma/org-roam-list-notes-by-tag ma/roam-agenda-tags)))
+  (setq org-agenda-start-day nil ; Today
+        org-agenda-span 'day     ; Only one day in overview
+        org-agenda-dim-blocked-tasks 'dimmed
+        org-agenda-start-with-log-mode t
+        org-agenda-time-grid `((daily today)
+                               ,(mapcar (lambda (time) (* 100 time)) (number-sequence 0 24))
+                               ""
+                               "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")))
 #+end_src
 
 Set up org-super-agenda.
@@ -344,8 +354,11 @@ Set up org-super-agenda.
                             (:name "Executing"
                              :todo "EXEC"
                              :order 1)
+                            (:name "Shopping"
+                             :tag "shopping"
+                             :order 3)
                             (:name "Next"
-                             :and (:todo "NEXT"
+                             :and (:todo ("NEXT" "HOLD")
                                    :not (:habit t))
                              :order 2)
                             (:discard (:anything t))
@@ -373,6 +386,17 @@ Set up org-super-agenda.
                              :order 2)
                             (:discard (:anything t))
                             ))))))
+          ("n" "Notes view"
+           ( ;; A list of sections
+            (alltodo "" ((org-agenda-overriding-header "")
+                         (org-agenda-prefix-format "   %-20c ::   %5t  ")
+                         (org-agenda-time-grid nil)
+                         (org-super-agenda-groups
+                          '((:name "Notes"
+                             :and (:todo "TODO" :tag "note")
+                             :order 2)
+                            (:discard (:anything t))
+                            ))))))
           ("g" "Time grid view"
            ( ;; A list of sections
             (agenda "" ((org-agenda-overriding-header "")
@@ -394,51 +418,164 @@ Getting todo state of the current item in agenda is not as trivial as I expected
 (defun ma/agenda-toggle-exec ()
   (interactive)
    (let* ((marker (or (org-get-at-bol 'org-marker) (org-agenda-error)))
+          (pos (marker-position marker))
           (buffer (marker-buffer marker)))
+     (message "buffer: %s" buffer)
      (org-with-remote-undo buffer
        (with-current-buffer buffer
+         (goto-char pos)
          (call-interactively 'ma/toggle-exec)))))
 #+end_src
 
 Set up keybindings.
 #+begin_src emacs-lisp
+(defmacro agenda-cmd! (&rest body)
+  (declare (doc-string 1) (pure t) (side-effect-free t))
+  `(lambda (&rest _)
+     (interactive)
+     ,@body
+     (org-agenda-redo)
+     (org-save-all-org-buffers)))
+
 (map! :after org-agenda
       :map org-agenda-mode-map
-      :desc "complete" :m "C-c d" (cmd! (org-agenda-todo "DONE") (org-agenda-redo))
-      :desc "execute"  :m "C-c x" (cmd! (ma/agenda-toggle-exec) (org-agenda-redo))
-      :desc "schedule" :m "C-c s" (cmd! (org-agenda-schedule nil) (org-agenda-redo))
-      :desc "deadline" :m "C-c l" (cmd! (org-agenda-deadline nil) (org-agenda-redo))
-      :desc "tag"      :m "C-c t" (cmd! (org-agenda-ctrl-c-ctrl-c) (org-agenda-redo))
-      :desc "effort"   :m "C-c e" (cmd! (org-agenda-set-effort) (org-agenda-redo)))
+      :desc "complete" :m "C-c d" (agenda-cmd! (ma/agenda-clock-out) (org-agenda-todo "DONE"))
+      :desc "hold"     :m "C-c h" (agenda-cmd! (ma/agenda-clock-out) (org-agenda-todo "HOLD"))
+      :desc "execute"  :m "C-c x" (agenda-cmd! (ma/agenda-toggle-exec))
+      :desc "schedule" :m "C-c s" (agenda-cmd! (org-agenda-schedule nil))
+      :desc "deadline" :m "C-c l" (agenda-cmd! (org-agenda-deadline nil))
+      :desc "tag"      :m "C-c t" (agenda-cmd! (org-agenda-ctrl-c-ctrl-c))
+      :desc "effort"   :m "C-c e" (agenda-cmd! (org-agenda-set-effort)))
 
 (map! :leader
       :prefix ("r a" . "agenda")
       :desc "agenda"     :m "a"   (cmd! (org-agenda nil "a"))
       :desc "tasks"      :m "t"   (cmd! (org-agenda nil "t"))
       :desc "learning"   :m "l"   (cmd! (org-agenda nil "l"))
+      :desc "notes"      :m "n"   (cmd! (org-agenda nil "n"))
       :desc "grid"       :m "g"   (cmd! (org-agenda nil "g")))
 #+end_src
 
-*** Capture
+*** Roam
+
+Org roam lacks conventient daily capture function, so I add my own here.
+#+begin_src emacs-lisp
+(defun org-roam-daily-capture (keys &optional goto template)
+  (interactive)
+  (let ((org-roam-directory (expand-file-name org-roam-dailies-directory org-roam-directory)))
+    (org-roam-capture- :goto (when goto '(4))
+                       :keys keys
+                       :node (org-roam-node-create)
+                       :templates org-roam-dailies-capture-templates
+                       :props (list :override-default-time (current-time))))
+  (when goto (run-hooks 'org-roam-dailies-find-file-hook)))
+#+end_src
 
 Set up capture templates.
 #+begin_src emacs-lisp
-(setq org-capture-templates
-  '(("c" "inbox`" entry (file org-inbox-file) "* %?" :prepend t :kill-buffer t :empty-lines-before 1)))
+(setq daily-file-format "%<%Y>/%<%B>/%<%Y-%m-%d>.org"
+      daily-head-format "#+TITLE: %<%Y-%m-%d>\n#+ROAM_TAGS: daily\n#+STARTUP: showall\n\n* Journal\n* Notes :note:"
+      daily-journal-entry `(file+head+olp ,daily-file-format ,daily-head-format ("Journal"))
+      daily-note-entry `(file+head+olp ,daily-file-format ,daily-head-format ("Note")))
+
+(after! org-roam
+  (setq org-roam-capture-templates
+        `(("d" "default" plain
+           "%?"
+           :if-new (file+head "%<%Y%m%d%H%M%S>-${slug}.org" "#+TITLE: ${title}")
+           :unnarrowed t)
+          ("b" "book" plain
+           (file ,(concat org-templates-dir "book.org"))
+           :if-new (file+head "${slug}.org"
+                              "#+TITLE: [T] ${title}\n#+AUTHOR: %^{Author}\n#+SOURCE: %^{Source}\n#+FILETAGS: book")
+           :unnarrowed t)
+          ("c" "course" plain
+           (file ,(concat org-templates-dir "course.org"))
+           :if-new (file+head "${slug}.org"
+                              "#+TITLE: [T] ${title}\n#+AUTHOR: %^{Author}\n#+SOURCE: %^{Source}\n#+FILETAGS: course")
+           :unnarrowed t)
+          ("p" "project" plain
+           (file ,(concat org-templates-dir "project.org"))
+           :if-new (file+head "${slug}.org"
+                              "#+TITLE: [R] ${title}\n#+FILETAGS: project")
+           :unnarrowed t)
+        )
+        org-roam-dailies-capture-templates
+          `(("j" "journal" entry
+             "** %<%H:%M> %?"
+             :if-new ,daily-journal-entry
+             :unnarrowed t)
+            ("n" "note" entry
+             "** TODO %?"
+             :if-new ,daily-note-entry
+             :unnarrowed t
+             ))))
 #+end_src
 
-Set up keybindings
+Refresh agenda files after a node with a tracker tag is created.
+#+begin_src emacs-lisp
+(defun ma/refresh-agenda-hook ()
+  (when (org-roam-capture-p)
+    (unless org-note-abort
+      (when-let* ((id (org-roam-capture--get :id))
+                  (node (org-roam-node-from-id id))
+                  (tags (org-roam-node-tags node)))
+        (when (seq-intersection tags ma/roam-agenda-tags)
+          (push (org-roam-node-file node) org-agenda-files))))))
+
+(add-hook 'org-capture-after-finalize-hook #'ma/refresh-agenda-hook)
+#+end_src
+
+Immediate insertion.
+#+begin_src emacs-lisp
+(defun org-roam-node-insert-immediate (arg &rest args)
+  (interactive "P")
+  (let ((args (cons arg args))
+        (org-roam-capture-templates (list (append (car org-roam-capture-templates)
+                                                  '(:immediate-finish t)))))
+    (apply #'org-roam-node-insert args)))
+
+(map! :map org-mode-map
+      :desc "insert" :g "C-c n I" #'org-roam-node-insert-immediate)
+#+end_src
+
+**** Keybindings
+
+Set up C-c n keybindings.
+#+begin_src emacs-lisp
+(map! :prefix ("C-c n" . "notes")
+      :desc "toggle"  :g "t" #'org-roam-buffer-toggle
+      :desc "find"    :g "f" #'org-roam-node-find
+      :desc "insert"  :g "i" #'org-roam-node-insert
+      :desc "capture" :g "c" #'org-roam-capture
+      :desc "today"   :g "d" (cmd! (ma/daily-capture "n" t)))
+#+end_src
+
+Set up C-c c capture keybindings.
+#+begin_src emacs-lisp
+(map! :prefix ("C-c c" . "capture")
+      :desc "book"       :g "b" (cmd! (org-roam-capture nil "b"))
+      :desc "course"     :g "c" (cmd! (org-roam-capture nil "c"))
+      :desc "project"    :g "p" (cmd! (org-roam-capture nil "p"))
+      :desc "journal"    :g "j" (cmd! (org-roam-daily-capture "j"))
+      :desc "note"       :g "n" (cmd! (org-roam-daily-capture "n")))
+#+end_src
+
+Set up SPC capture keybindings.
 #+begin_src emacs-lisp
 (map! :leader
       :prefix ("r c" . "capture")
-      :desc "inbox"      :m "c"   (cmd! (org-capture nil "c")))
+      :desc "book"       :m "b" (cmd! (org-roam-capture nil "b"))
+      :desc "course"     :m "c" (cmd! (org-roam-capture nil "c"))
+      :desc "project"    :m "p" (cmd! (org-roam-capture nil "p"))
+      :desc "journal"    :m "j" (cmd! (org-roam-daily-capture "j"))
+      :desc "note"       :m "n" (cmd! (org-roam-daily-capture "n")))
 #+end_src
 
 *** Refiling
 
 Set up general refiling parameters.
 #+begin_src emacs-lisp
-(load! "lisp/refiler")
 (setq org-refile-use-outline-path 'file
       org-outline-path-complete-in-steps nil
       org-refile-allow-creating-parent-nodes 'confirm)
@@ -446,12 +583,23 @@ Set up general refiling parameters.
 
 Set up refiling paths.
 #+begin_src emacs-lisp
-(defun ma/refile-to-file (file state)
+(defun ma/refile (target heading &optional arg default-buffer msg)
+  "Refile entries with top-level PARENT under the (exact) HEADING in FILE."
+  (let* ((position
+          (if heading
+              (with-current-buffer (find-file-noselect target)
+                (or (org-find-exact-headline-in-buffer heading)
+                    (org-end-of-subtree t t)))))
+         (rfloc `(,heading ,target nil ,position)))
+    (org-refile arg default-buffer rfloc msg)))
+
+(defun ma/refile-to-file (file state &optional follow)
   (interactive)
   (org-todo state)
   (org-entry-put (point) "ORDERED" "t")
-  (org-refile-to-file file nil)
-  (org-refile-goto-last-stored))
+  (ma/refile file nil)
+  (when follow
+    (org-refile-goto-last-stored)))
 
 (defun ma/refile-to-habits ()
   "Move the current subtree from processing to a habits."
@@ -468,7 +616,7 @@ Set up refiling paths.
               (format ".+%dd" min)
               (format ".+%dd/%dd"))))
     (org-schedule nil (message "<%s %s>" date repeat-str))
-    (org-refile-to-file org-habits-file nil)))
+    (ma/refile org-habits-file nil)))
 
 (defun ma/refile-to-incubator ()
   "Refile the current subtree to the incubator based on top-level non-inherited tag"
@@ -476,14 +624,24 @@ Set up refiling paths.
   (org-todo "TODO")
   (if-let ((tags (org-get-tags nil t)))
     (let* ((category (car tags))
-           (file-name (format "incubator-%s.org" category))
+           (file-name (format "%s.org" category))
            (file-path (concat org-incubator-dir file-name))
            (header (format "#+FILETAGS: %s\n\n" category)))
       (unless (file-exists-p file-path)
         (append-to-file header nil file-path))
       (org-toggle-tag category 'off)
-      (org-refile-to-file file-path nil))
-    (org-refile-to-file (concat org-incubator-dir "incubator.org"))))
+      (ma/refile file-path nil))
+    (ma/refile (concat org-incubator-dir "incubator.org"))))
+
+(defun ma/refile-to-list ()
+  "Refile the current subtree to the shopping list based on top-level non-inherited tag"
+  (interactive)
+  (org-todo "TODO")
+  (if-let ((tags (org-get-tags nil t)))
+    (let* ((category-tag (car tags))
+           (category (capitalize category-tag)))
+      (org-toggle-tag category-tag 'off)
+      (ma/refile org-list-file category))))
 #+end_src
 
 Set up refiling keybindings.
@@ -493,15 +651,82 @@ Set up refiling keybindings.
       :desc "refile"     :n "/" #'org-refile
       :desc "task"       :n "t" (cmd! (ma/refile-to-file org-tasks-file "NEXT"))
       :desc "event"      :n "e" (cmd! (ma/refile-to-file org-events-file "TODO"))
+      :desc "list"       :n "l" #'ma/refile-to-list
       :desc "habits"     :n "h" #'ma/refile-to-habits
-      :desc "incubate"   :n "i" #'ma/refile-to-incubator
-      :desc "books"      :n "B" (cmd! (org-refile-subtree-to-new-file org-books-dir "book"))
-      :desc "courses"    :n "C" (cmd! (org-refile-subtree-to-new-file org-courses-dir "course"))
-      :desc "projects"   :n "P" (cmd! (org-refile-subtree-to-new-file org-projects-dir "project"))
-      :desc "tech"       :n "T" (cmd! (org-refile-subtree-to-new-file org-tech-dir "tech")))
+      :desc "incubate"   :n "i" #'ma/refile-to-incubator)
 #+end_src
 
 Save org buffers after refiling.
 #+begin_src emacs-lisp
 (advice-add 'org-refile :after (lambda (&rest _) (org-save-all-org-buffers)))
+#+end_src
+
+*** Capture
+
+Set up capture templates.
+#+begin_src emacs-lisp
+(setq org-capture-templates
+  '(("x" "inbox`" entry (file org-inbox-file) "* %?" :prepend t :kill-buffer t :empty-lines-before 1)))
+#+end_src
+
+Set up keybindings
+#+begin_src emacs-lisp
+(map! :prefix ("C-c c" . "capture")
+      :desc "inbox"      :g "x" (cmd! (org-capture nil "x")))
+
+(map! :leader
+      :prefix ("r c" . "capture")
+      :desc "inbox"      :m "x" (cmd! (org-capture nil "x")))
+#+end_src
+*** Clocking
+
+Clocking setup
+#+begin_src emacs-lisp
+(after! org
+  (setq org-clock-out-when-done t
+        org-clock-persist 'history))
+#+end_src
+
+Clock out function should check that we are in the correct state first.
+#+begin_src emacs-lisp
+(defun ma/clock-out ()
+  (interactive)
+  (when (equal (org-get-todo-state) "NEXT")
+    (org-clock-out)))
+
+(defun ma/agenda-clock-out ()
+  (interactive)
+  (let* ((marker (or (org-get-at-bol 'org-marker) (org-agenda-error)))
+         (pos (marker-position marker))
+         (buffer (marker-buffer marker)))
+    (org-with-remote-undo buffer
+      (with-current-buffer buffer
+        (goto-char pos)
+        (call-interactively 'ma/clock-out)))))
+#+end_src
+
+Set up a hook to save clocked time to dailies
+#+begin_src emacs-lisp
+(defun ma/agenda-get-heading (&optional NO-TAGS NO-TODO NO-PRIORITY NO-COMMENT)
+  (let* ((marker (or (org-get-at-bol 'org-marker) (org-agenda-error)))
+         (pos (marker-position marker))
+         (buffer (marker-buffer marker)))
+    (with-current-buffer buffer
+      (goto-char pos)
+      (org-get-heading NO-TAGS NO-TODO NO-PRIORITY NO-COMMENT))))
+
+(defun ma/clock-out-handler ()
+  (let* ((start-time (format-time-string "%H:%M" org-clock-start-time))
+         (end-time (format-time-string "%H:%M" org-clock-out-time))
+         (heading (if (equal major-mode 'org-agenda-mode)
+                      (ma/agenda-get-heading t t t t)
+                    (org-get-heading t t t t)))
+         (entry (format "** %s - %s %s" start-time end-time heading)))
+    (org-roam-capture- :node (org-roam-node-create)
+                       :templates `(("j" "journal" plain ,entry
+                                     :if-new ,daily-journal-entry
+                                     :immediate-finish t)))))
+
+(after! org
+  (add-hook 'org-clock-out-hook (todo-completion! 'ma/clock-out-handler)))
 #+end_src
