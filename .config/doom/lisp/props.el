@@ -1,7 +1,5 @@
 ;;; lisp/props.el -*- lexical-binding: t; -*-
 
-(defvar org-entry-inheritance nil)
-
 (defun org-entry-get-special-with-inheritance (property &optional literal-nil)
   "Same as org's `org-entry-get-with-inheritance' but for special properties"
   (move-marker org-entry-property-inherited-from nil)
@@ -26,11 +24,11 @@
      (if literal-nil value (org-not-nil value)))))
 
 (defun org-entry-get (pom property &optional inherit literal-nil)
-    "Same as org's `org-get-entry' but allows inheriting special properties"
+    "Same as org's `org-entry-get' but allows inheriting special properties
+     and inheritance is always on for inhertied properties."
   (org-with-point-at pom
     (let ((special (member-ignore-case property (cons "CATEGORY" org-special-properties)))
-          (inherit (or org-entry-inheritance
-                       (not (eq inherit 'selective))
+          (inherit (or (equal inherit 'inherit) ;; Force inheritance
                        (org-property-inherit-p property))))
       (cond
        ((and special (not inherit))
