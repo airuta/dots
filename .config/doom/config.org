@@ -29,9 +29,10 @@ Define colors for todo keywords.
         ("NEXT"      . (:foreground "#ED6165" :weight normal))
         ("HOLD"      . (:foreground "#439EEA" :wegiht normal))
         ("WAIT"      . (:foreground "#998CD9" :wegiht normal))
+        ("MAYBE"     . (:foreground "#998CD9" :wegiht normal))
         ("EXEC"      . (:foreground "#ED6165" :weight bold))
         ("DONE"      . (:foreground "#88B453" :weight normal))
-        ("CNCL"      . (:foreground "#666666" :weight normal))))
+        ("CANCEL"    . (:foreground "#666666" :weight normal))))
 #+end_src
 
 Font and line spacing.
@@ -132,14 +133,13 @@ Basic definitions.
       org-list-file       (concat org-directory "/list.org")
       ;; Dirs
       org-templates-dir   (concat org-roam-directory "/templates/")
-      org-incubator-dir   (concat org-directory "/incubator/")
       org-ledger-dir      (concat org-directory "/ledger/"))
 #+end_src
 
 Org mode todo items keywords.
 #+begin_src emacs-lisp
 (after! org
-  (setq org-todo-keywords '((sequence "TODO(t)" "NEXT(n)" "HOLD(h)" "WAIT(w)" "EXEC(x)" "|" "DONE(d)" "CNCL(c)"))
+  (setq org-todo-keywords '((sequence "TODO(t)" "NEXT(n)" "HOLD(h)" "WAIT(w)" "MAYBE(m)" "EXEC(x)" "|" "DONE(d)" "CANCEL(c)"))
         org-todo-keyword-faces todo-colors
         org-enforce-todo-dependencies t))
 #+end_src
@@ -169,11 +169,9 @@ Set up go-to keybindings.
 
 Define some keys for convenience.
 #+begin_src emacs-lisp
-(map! :desc "agenda"     :m "C-c a" #'org-agenda
-      :desc "prev-hl"    :m "C-k"   #'org-previous-visible-heading
-      :desc "next-hl"    :m "C-j"   #'org-next-visible-heading)
-
 (map! :map org-mode-map
+      :desc "prev-hl"    :m "C-k"   #'org-previous-visible-heading
+      :desc "next-hl"    :m "C-j"   #'org-next-visible-heading
       :desc "store link" :m "C-c l" #'org-store-link
       :desc "execute"    :m "C-c x" (cmd! (ma/task-toggle))
       :desc "complete"   :m "C-c d" (cmd! (ma/task-done))
@@ -480,8 +478,20 @@ Set up org-super-agenda.
                          (org-agenda-prefix-format "   %-20c :   %05e    :   %5t  %(ma/get-task-prefix) ")
                          (org-agenda-time-grid nil)
                          (org-super-agenda-groups
-                          '((:name "Tasks"
+                          '((:discard (:todo "MAYBE"))
+                            (:name "Tasks"
                              :category "task"
+                             :order 1)
+                            (:discard (:anything t))
+                           ))))))
+          ("i" "Incubators"
+           ( ;; A list of sections
+            (alltodo "" ((org-agenda-overriding-header "")
+                         (org-agenda-prefix-format "   %-20c :   %5t  ")
+                         (org-agenda-time-grid nil)
+                         (org-super-agenda-groups
+                          '((:discard (:not (:todo "MAYBE")))
+                            (:auto-tags t
                              :order 1)
                             (:discard (:anything t))
                            ))))))
@@ -567,11 +577,11 @@ Set up keybindings.
       :desc "by tag"    :m "t" #'org-agenda-filter-by-tag
       :desc "by effort" :m "e" #'org-agenda-filter-by-effort)
 
-(map! :leader
-      :prefix ("r a" . "agenda")
+(map! :prefix ("C-c a" . "agenda")
       :desc "refresh"    :m "r"   #'ma/refresh-agenda-files
       :desc "agenda"     :m "a"   (cmd! (org-agenda nil "a"))
       :desc "tasks"      :m "t"   (cmd! (org-agenda nil "t"))
+      :desc "incubators" :m "i"   (cmd! (org-agenda nil "i"))
       :desc "learning"   :m "l"   (cmd! (org-agenda nil "l"))
       :desc "notes"      :m "n"   (cmd! (org-agenda nil "n"))
       :desc "grid"       :m "g"   (cmd! (org-agenda nil "g")))
@@ -655,33 +665,17 @@ Refile to habits file. This functions adds formating to make an item into a habi
     (ma/refile org-habits-file nil)))
 #+end_src
 
-Refile to incubator depending on the first tag.
-#+begin_src emacs-lisp
-(defun ma/refile-to-incubator ()
-  "Refile the current subtree to the incubator based on top-level non-inherited tag"
-  (interactive)
-  (org-todo "TODO")
-  (if-let ((tags (org-get-tags nil t)))
-    (let* ((category (car tags))
-           (file-name (format "%s.org" category))
-           (file-path (concat org-incubator-dir file-name))
-           (header (format "#+FILETAGS: %s\n\n" category)))
-      (unless (file-exists-p file-path)
-        (append-to-file header nil file-path))
-      (org-toggle-tag category 'off)
-      (ma/refile file-path nil))
-    (ma/refile (concat org-incubator-dir "incubator.org"))))
-#+end_src
+**** Keybindings
 
-Set up refiling keybindings.
+Set up C-c keybindings.
 #+begin_src emacs-lisp
-(map! :map org-mode-map :leader
-      :prefix ("r r" . "refile")
+(map! :map (org-mode-map org-agenda-mode-map)
+      :prefix ("C-c r" . "refile")
       :desc "refile"     :n "/" #'org-refile
       :desc "task"       :n "t" (cmd! (ma/refile-task "NEXT"))
       :desc "event"      :n "e" (cmd! (ma/refile-to-file org-events-file "TODO"))
       :desc "habits"     :n "h" #'ma/refile-to-habits
-      :desc "incubate"   :n "i" #'ma/refile-to-incubator)
+      :desc "incubate"   :n "i" (cmd! (ma/refile-task "MAYBE")))
 #+end_src
 
 *** States
