@@ -49,6 +49,8 @@
 ;; ...Or *all* packages (NOT RECOMMENDED; will likely break things)
 ;(unpin! t)
 
-(package! company-tabnine)
 (package! org-superstar)
 (package! org-super-agenda)
+(package! org-jira)
+(package! dendroam
+  :recipe (:host github :repo "vicrdguez/dendroam" :branch "main"))

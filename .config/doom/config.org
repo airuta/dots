@@ -15,6 +15,12 @@ Drive folder.
 (setq drive-folder "~/Dropbox")
 #+end_src
 
+Auth setup.
+#+begin_src emacs-lisp
+(setq auth-sources
+      '((:source "~/.authinfo.gpg")))
+#+end_src
+
 * UI & BEHAVIOR
 
 Select a theme.
@@ -43,8 +49,8 @@ Font and line spacing.
 
 Set up line numbers.
 #+begin_src emacs-lisp
-(setq display-line-numbers-type t)
-(setq display-line-numbers-type 'relative)
+(setq display-line-numbers-type t
+      display-line-numbers-type 'relative)
 #+end_src
 
 Disable exit prompt.
@@ -123,17 +129,19 @@ Prettify org mode a bit.
 
 Basic definitions.
 #+begin_src emacs-lisp
-(setq org-directory (concat drive-folder "/org")
-      org-roam-directory (concat org-directory "/roam")
+(setq ;; System locations
+      org-directory          (concat drive-folder "/org")
+      org-roam-directory     (concat org-directory "/roam")
       org-default-notes-file (concat org-roam-directory "/inbox.org")
       ;; Files
-      org-inbox-file      org-default-notes-file
-      org-events-file     (concat org-directory "/events.org")
-      org-habits-file     (concat org-directory "/habits.org")
-      org-list-file       (concat org-directory "/list.org")
+      org-inbox-file         org-default-notes-file
+      org-events-file        (concat org-directory "/events.org")
+      org-habits-file        (concat org-directory "/habits.org")
+      org-list-file          (concat org-directory "/list.org")
       ;; Dirs
-      org-templates-dir   (concat org-roam-directory "/templates/")
-      org-ledger-dir      (concat org-directory "/ledger/"))
+      org-jira-working-dir   (concat org-directory "/jira")
+      org-templates-dir      (concat org-roam-directory "/templates/")
+      org-ledger-dir         (concat org-directory "/ledger/"))
 #+end_src
 
 Org mode todo items keywords.
@@ -151,7 +159,7 @@ Must-have tags, these should be settable from everywhere.
                       ("@errand" . ?e)
                       ("@comp"   . ?c)))
 (setq! org-global-properties
-       '(("Effort_ALL" . "0:05 0:10 0:15 0:30 0:45 1:00 2:00 4:00")))
+       '(("Effort_ALL" . "0:05 0:10 0:15 0:30 0:45 1:00 2:00 4:00 8:00")))
 #+end_src
 
 Set up go-to keybindings.
@@ -160,11 +168,7 @@ Set up go-to keybindings.
       :desc "inbox"    :m "x" (cmd! (find-file org-inbox-file))
       :desc "events"   :m "e" (cmd! (find-file org-events-file))
       :desc "habits"   :m "h" (cmd! (find-file org-habits-file))
-      :desc "list"     :m "l" (cmd! (find-file org-list-file))
-      :desc "task"     :m "t" (cmd! (ma/org-roam-find-by-category "daily"))
-      :desc "book"     :m "b" (cmd! (ma/org-roam-find-by-category "book"))
-      :desc "course"   :m "c" (cmd! (ma/org-roam-find-by-category "course"))
-      :desc "project"  :m "p" (cmd! (ma/org-roam-find-by-category "project")))
+      :desc "list"     :m "l" (cmd! (find-file org-list-file)))
 #+end_src
 
 Define some keys for convenience.
@@ -196,6 +200,14 @@ Enable org-habit.
 
 (after! org
   (add-to-list 'org-modules 'org-habit))
+#+end_src
+*** Jira
+
+Basic JIRA configuration.
+#+begin_src emacs-lisp
+(use-package! org-jira
+  :config
+  (setq jiralib-url "https://jira.north.io"))
 #+end_src
 
 *** Roam
@@ -240,7 +252,7 @@ Helpers.
 Define fixed template.
 #+begin_src emacs-lisp
 (setq inbox-template
-      '("i" "inbox" entry
+      '("x" "inbox" entry
         "* %?"
         :if-new (file "inbox.org")
         :kill-buffer t
@@ -249,11 +261,11 @@ Define fixed template.
 
 Define daily templates.
 #+begin_src emacs-lisp
-(setq daily-file-format "%<%Y>/%<%B>/%<%Y-%m-%d>.org"
+(setq daily-file-format "%<%Y.%m.%d>.org"
       daily-head-format (ma/read-template "daily.head.org")
+      daily-body-format (ma/read-template "daily.body.org")
       daily-journal-entry `(file+head+olp ,daily-file-format ,daily-head-format ("Journal"))
-      daily-task-entry    `(file+head+olp ,daily-file-format ,daily-head-format ("Tasks"))
-      daily-note-entry    `(file+head+olp ,daily-file-format ,daily-head-format ("Notes")))
+      daily-tasks-entry `(file+head+olp ,daily-file-format ,daily-head-format ("Tasks")))
 #+end_src
 
 Define general templates.
@@ -261,7 +273,8 @@ Define general templates.
 (setq general-templates
       '(("book"    . "b")
         ("course"  . "c")
-        ("project" . "p")))
+        ("project" . "p")
+        ("green"   . "g")))
 #+end_src
 
 Org roam lacks conventient daily capture function, so I add my own here.
@@ -284,23 +297,25 @@ Set up capture templates.
          (key (cdr pair)))
     (list key category 'plain
           `(file ,(concat org-templates-dir category ".body.org"))
-          :if-new (list 'file+head "${slug}.org" (ma/read-template (concat category ".head.org")))
+          :if-new (list 'file+head (format "%s.${slug}.org" category) (ma/read-template (concat category ".head.org")))
           :unnarrowed t)))
 
-(after! org-roam
-  (setq org-roam-capture-templates
+(after! org
+    (setq org-roam-capture-templates
         (cons inbox-template
-              (mapcar #'ma/gen-capture-template general-templates))
+                (mapcar #'ma/gen-capture-template general-templates))
         org-roam-dailies-capture-templates
-          `(("j" "journal" entry
-             "** %<%H:%M> : %?"
-             :if-new ,daily-journal-entry
-             :unnarrowed t)
-            ("n" "note" entry
-             "** TODO %?"
-             :if-new ,daily-note-entry
-             :unnarrowed t
-             ))))
+        `(("d" "daily" entry
+            ,daily-body-format
+            :if-new ,daily-journal-entry
+            :unnarrowed t))
+        dendroam-capture-templates
+        `(("t" "Note" entry
+            "* TODO %?"
+            :if-new (file+head "${current-file}.%<%Y.%m.%d>.org" ,(ma/read-template "note.head.org")))
+            ("s" "Scratch" entry
+            "* TODO %?"
+            :if-new (file+head "scratch.%<%Y.%m.%d.%.%M%S%3N>.org" ,(ma/read-template "scratch.head.org"))))))
 #+end_src
 
 Find file with category.
@@ -317,7 +332,7 @@ Capture to inbox requires special handling.
 (defun ma/capture-inbox ()
   (interactive)
   (org-roam-capture- :node (org-roam-node-create)
-                     :templates (list inbox-templates)))
+                     :templates (list inbox-template)))
 #+end_src
 
 Refresh agenda files after a node with a tracker tag is created.
@@ -356,30 +371,64 @@ Set up C-c n keybindings.
       :desc "find"    :g "f" #'org-roam-node-find
       :desc "insert"  :g "i" #'org-roam-node-insert
       :desc "capture" :g "c" #'org-roam-capture
-      :desc "today"   :g "d" (cmd! (org-roam-daily-capture "n" t)))
+      :desc "today"   :g "d" (cmd! (org-roam-daily-capture "d" t)))
 #+end_src
 
 Set up C-c c capture keybindings.
 #+begin_src emacs-lisp
 (map! :prefix ("C-c c" . "capture")
-      :desc "inbox"      :g "x" #'ma/capture-inbox
-      :desc "book"       :g "b" (cmd! (org-roam-capture nil "b"))
-      :desc "course"     :g "c" (cmd! (org-roam-capture nil "c"))
-      :desc "project"    :g "p" (cmd! (org-roam-capture nil "p"))
-      :desc "journal"    :g "j" (cmd! (org-roam-daily-capture "j"))
-      :desc "note"       :g "n" (cmd! (org-roam-daily-capture "n")))
+      :desc "inbox"   :g "x" #'ma/capture-inbox
+      :desc "book"    :g "b" (cmd! (org-roam-capture nil "b"))
+      :desc "course"  :g "c" (cmd! (org-roam-capture nil "c"))
+      :desc "project" :g "p" (cmd! (org-roam-capture nil "p"))
+      :desc "green"   :g "g" (cmd! (org-roam-capture nil "g"))
+      :desc "note"    :g "n" (cmd! (dendroam-insert-time-note t))
+      :desc "scratch" :g "s" (cmd! (dendroam-insert-scratch-note)))
 #+end_src
 
-Set up SPC capture keybindings.
+Set up C-c f find node keybindings.
 #+begin_src emacs-lisp
-(map! :leader
-      :prefix ("r c" . "capture")
-      :desc "inbox"      :m "x" #'ma/capture-inbox
-      :desc "book"       :m "b" (cmd! (org-roam-capture nil "b"))
-      :desc "course"     :m "c" (cmd! (org-roam-capture nil "c"))
-      :desc "project"    :m "p" (cmd! (org-roam-capture nil "p"))
-      :desc "journal"    :m "j" (cmd! (org-roam-daily-capture "j"))
-      :desc "note"       :m "n" (cmd! (org-roam-daily-capture "n")))
+(map! :prefix "C-c f"
+      :desc "task"    :m "t" (cmd! (ma/org-roam-find-by-category "daily"))
+      :desc "book"    :m "b" (cmd! (ma/org-roam-find-by-category "book"))
+      :desc "course"  :m "c" (cmd! (ma/org-roam-find-by-category "course"))
+      :desc "green"   :m "g" (cmd! (ma/org-roam-find-by-category "green"))
+      :desc "project" :m "p" (cmd! (ma/org-roam-find-by-category "project")))
+#+end_src
+**** Dendroam
+
+Basic setup.
+#+begin_src emacs-lisp
+(use-package! dendroam
+  :after org-roam)
+
+(setq org-roam-node-display-template "${hierarchy}:${title}")
+#+end_src
+
+Fix dendroam.
+#+begin_src emacs-lisp
+(setq org-roam-slug-trim-chars '(;; Combining Diacritical Marks https://www.unicode.org/charts/PDF/U0300.pdf
+                                   768 ; U+0300 COMBINING GRAVE ACCENT
+                                   769 ; U+0301 COMBINING ACUTE ACCENT
+                                   770 ; U+0302 COMBINING CIRCUMFLEX ACCENT
+                                   771 ; U+0303 COMBINING TILDE
+                                   772 ; U+0304 COMBINING MACRON
+                                   774 ; U+0306 COMBINING BREVE
+                                   775 ; U+0307 COMBINING DOT ABOVE
+                                   776 ; U+0308 COMBINING DIAERESIS
+                                   777 ; U+0309 COMBINING HOOK ABOVE
+                                   778 ; U+030A COMBINING RING ABOVE
+                                   780 ; U+030C COMBINING CARON
+                                   795 ; U+031B COMBINING HORN
+                                   803 ; U+0323 COMBINING DOT BELOW
+                                   804 ; U+0324 COMBINING DIAERESIS BELOW
+                                   805 ; U+0325 COMBINING RING BELOW
+                                   807 ; U+0327 COMBINING CEDILLA
+                                   813 ; U+032D COMBINING CIRCUMFLEX ACCENT BELOW
+                                   814 ; U+032E COMBINING BREVE BELOW
+                                   816 ; U+0330 COMBINING TILDE BELOW
+                                   817 ; U+0331 COMBINING MACRON BELOW
+                                   ))
 #+end_src
 
 *** Agenda
@@ -424,6 +473,11 @@ Set up org-super-agenda.
                          (or (outline-next-heading) (point-max)))))
     (if (org-entry-blocked-p) next-headline)))
 
+(defun ma/agenda-project-name (item)
+  (-when-let* ((marker (org-super-agenda--get-marker item))
+               (file-name (->> marker marker-buffer buffer-name)))
+    (concat "Project: " file-name)))
+
 (use-package! org-super-agenda
   :after org-agenda
   :init
@@ -432,10 +486,11 @@ Set up org-super-agenda.
           ("a" "Agenda view"
            ( ;; A list of sections
             (agenda "" ((org-agenda-overriding-header "")
-                        (org-agenda-prefix-format "   %-20c :   %05e    :   %5t  ")
+                        (org-agenda-prefix-format "   %-20c :   %05e    :   %05t  ")
                         (org-agenda-time-grid nil)
                         (org-super-agenda-groups
-                         '((:name "Closed"
+                         '((:discard (:todo "DONE"))
+                           (:name "Closed"
                             :log closed
                             :order 0)
                            (:name "Habits"
@@ -448,7 +503,7 @@ Set up org-super-agenda.
                             (:discard (:anything t))
                            ))))
             (alltodo "" ((org-agenda-overriding-header "")
-                         (org-agenda-prefix-format "   %-20c :   %05e    :   %5t  ")
+                         (org-agenda-prefix-format "   %-20c :   %05e    :   %05t  ")
                          (org-agenda-time-grid nil)
                          (org-agenda-skip-function 'ma/skip-if-blocked)
                          (org-super-agenda-groups
@@ -475,19 +530,32 @@ Set up org-super-agenda.
           ("t" "Tasks view"
            ( ;; A list of sections
             (alltodo "" ((org-agenda-overriding-header "")
-                         (org-agenda-prefix-format "   %-20c :   %05e    :   %5t  %(ma/get-task-prefix) ")
+                         (org-agenda-prefix-format "   %-20c :   %05e    :   %05t  %(ma/get-task-prefix) ")
                          (org-agenda-time-grid nil)
                          (org-super-agenda-groups
-                          '((:discard (:todo "MAYBE"))
+                          '((:discard (:file-path "project\\."))
+                            (:discard (:todo "MAYBE"))
                             (:name "Tasks"
                              :category "task"
+                             :order 1)
+                            (:discard (:anything t))
+                           ))))))
+          ("p" "Projects view"
+           ( ;; A list of sections
+            (alltodo "" ((org-agenda-overriding-header "")
+                         (org-agenda-prefix-format "   %-20c :   %05e    :   %05t  %(ma/get-task-prefix) ")
+                         (org-agenda-time-grid nil)
+                         (org-super-agenda-groups
+                          '((:discard (:not (:file-path "project\\.")))
+                            (:name "Project tasks"
+                             :auto-map ma/agenda-project-name
                              :order 1)
                             (:discard (:anything t))
                            ))))))
           ("i" "Incubators"
            ( ;; A list of sections
             (alltodo "" ((org-agenda-overriding-header "")
-                         (org-agenda-prefix-format "   %-20c :   %5t  ")
+                         (org-agenda-prefix-format "   %-20c :   %05t  ")
                          (org-agenda-time-grid nil)
                          (org-super-agenda-groups
                           '((:discard (:not (:todo "MAYBE")))
@@ -498,7 +566,7 @@ Set up org-super-agenda.
           ("l" "Learning view"
            ( ;; A list of sections
             (alltodo "" ((org-agenda-overriding-header "")
-                         (org-agenda-prefix-format "   %-20c :   %05e    :   %5t  %(ma/get-task-prefix) ")
+                         (org-agenda-prefix-format "   %-20c :   %05e    :   %05t  %(ma/get-task-prefix) ")
                          (org-agenda-time-grid nil)
                          (org-super-agenda-groups
                           '((:name "Learning"
@@ -509,7 +577,7 @@ Set up org-super-agenda.
           ("n" "Notes view"
            ( ;; A list of sections
             (alltodo "" ((org-agenda-overriding-header "")
-                         (org-agenda-prefix-format "   %-20c :   %5t  ")
+                         (org-agenda-prefix-format "   %-20c :   %05t  ")
                          (org-agenda-time-grid nil)
                          (org-super-agenda-groups
                           '((:name "Notes"
@@ -522,7 +590,8 @@ Set up org-super-agenda.
             (agenda "" ((org-agenda-overriding-header "")
                         (org-agenda-prefix-format "   %05t  ")
                         (org-super-agenda-groups
-                         '((:name "Today"
+                         '((:discard (:habit t))
+                           (:name "Today"
                             :time-grid t
                             :date today
                             :order 1)
@@ -578,13 +647,14 @@ Set up keybindings.
       :desc "by effort" :m "e" #'org-agenda-filter-by-effort)
 
 (map! :prefix ("C-c a" . "agenda")
-      :desc "refresh"    :m "r"   #'ma/refresh-agenda-files
-      :desc "agenda"     :m "a"   (cmd! (org-agenda nil "a"))
-      :desc "tasks"      :m "t"   (cmd! (org-agenda nil "t"))
-      :desc "incubators" :m "i"   (cmd! (org-agenda nil "i"))
-      :desc "learning"   :m "l"   (cmd! (org-agenda nil "l"))
-      :desc "notes"      :m "n"   (cmd! (org-agenda nil "n"))
-      :desc "grid"       :m "g"   (cmd! (org-agenda nil "g")))
+      :desc "refresh"    :g "r"   #'ma/refresh-agenda-files
+      :desc "agenda"     :g "a"   (cmd! (org-agenda nil "a"))
+      :desc "tasks"      :g "t"   (cmd! (org-agenda nil "t"))
+      :desc "incubators" :g "i"   (cmd! (org-agenda nil "i"))
+      :desc "projects"   :g "p"   (cmd! (org-agenda nil "p"))
+      :desc "learning"   :g "l"   (cmd! (org-agenda nil "l"))
+      :desc "notes"      :g "n"   (cmd! (org-agenda nil "n"))
+      :desc "grid"       :g "g"   (cmd! (org-agenda nil "g")))
 #+end_src
 
 *** Refiling
@@ -627,7 +697,7 @@ Refile a task to today's daily note.
   (interactive)
   (let ((org-refile-keep nil) ;; Set this to t to keep the original
         (org-roam-dailies-capture-templates
-         `(("t" "tasks" entry "%?" :if-new ,daily-task-entry)))
+         `(("t" "tasks" entry "%?" :if-new ,daily-tasks-entry)))
         (org-after-refile-insert-hook #'save-buffer)
         today-file
         pos)
@@ -693,8 +763,7 @@ Defininig my (extremenly simple) state machine.
     (org-clock-out nil t)))
 
 (defun ma/task-done ()
-  (org-todo "DONE")
-  (org-clock-out nil t))
+  (org-todo "DONE"))
 
 (defun ma/task-hold ()
   (org-todo "HOLD")
@@ -710,9 +779,6 @@ Defininig my (extremenly simple) state machine.
           ((equal todo-state "HOLD") (ma/task-start "EXEC"))
           ((equal todo-state "EXEC") (ma/task-stop "NEXT")))))
 #+end_src
-
-#+RESULTS:
-: ma/task-toggle
 
 Define helper functions.
 #+begin_src emacs-lisp
@@ -732,7 +798,8 @@ I want my hooks to run in specific files only. This macro will automate file nam
   (declare (doc-string 1) (pure t) (side-effect-free t))
   `(lambda (&rest rest)
     (when (equal (org-get-category) ma/todo-completion-category)
-      (interactive) (apply ,fn rest))))
+      (interactive)
+      (apply ,fn rest))))
 #+end_src
 
 I need a way to automatically make next item become "NEXT" when the current one changes to "DONE".
@@ -765,7 +832,8 @@ I need to set the next sibling to "NEXT" when the current one is "DONE".
 
 Use what I defined in the todo hooks.
 #+begin_src emacs-lisp
-(setq ma/todo-completion-category "task")
+(after! org
+  (setq ma/todo-completion-category "task"))
 
 (after! org
   (add-hook 'org-after-todo-statistics-hook (todo-completion! 'ma/summary-todo))
@@ -777,8 +845,7 @@ Use what I defined in the todo hooks.
 Clocking setup
 #+begin_src emacs-lisp
 (after! org
-  (setq org-clock-out-when-done t
-        org-clock-persist 'history))
+  (setq org-clock-out-when-done t))
 #+end_src
 
 Set up a hook to save clocked time to dailies
@@ -800,10 +867,10 @@ Set up a hook to save clocked time to dailies
          (entry (format "** %s - %s : %s" start-time end-time heading))
          (org-roam-directory (expand-file-name org-roam-dailies-directory org-roam-directory)))
     (org-roam-capture- :node (org-roam-node-create)
-                       :templates `(("j" "journal" plain ,entry
+                       :templates `(("j" "journal" entry ,entry
                                      :if-new ,daily-journal-entry
                                      :immediate-finish t)))))
 
-(after! org
-  (add-hook 'org-clock-out-hook (todo-completion! 'ma/clock-out-handler)))
+ (after! org
+   (add-hook 'org-clock-out-hook 'ma/clock-out-handler))
 #+end_src
