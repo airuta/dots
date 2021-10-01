@@ -17,8 +17,9 @@ Drive folder.
 
 Auth setup.
 #+begin_src emacs-lisp
-(setq auth-sources
-      '((:source "~/.authinfo.gpg")))
+(after! org-jira
+  (setq auth-sources
+        '((:source "~/.authinfo.gpg"))))
 #+end_src
 
 * UI & BEHAVIOR
@@ -99,7 +100,16 @@ Remove icons from treemacs.
 Set up projectile default path.
 #+begin_src emacs-lisp
 (after! projectile
-  (setq projectile-project-search-path (concat drive-folder "/forge")))
+  (setq projectile-project-search-path (list (concat drive-folder "/forge"))))
+#+end_src
+
+*** Evil
+
+Set up evil-snipe.
+#+begin_src emacs-lisp
+(after! evil-snipe
+  (setq evil-snipe-mode t
+        evil-snipe-override-mode t))
 #+end_src
 
 * ORG MODE
@@ -133,13 +143,14 @@ Basic definitions.
       org-directory          (concat drive-folder "/org")
       org-roam-directory     (concat org-directory "/roam")
       org-default-notes-file (concat org-roam-directory "/inbox.org")
+      org-jira-working-dir   (concat org-roam-directory "/jira")
+      org-roam-dailies-directory "daily/"
       ;; Files
       org-inbox-file         org-default-notes-file
       org-events-file        (concat org-directory "/events.org")
       org-habits-file        (concat org-directory "/habits.org")
       org-list-file          (concat org-directory "/list.org")
       ;; Dirs
-      org-jira-working-dir   (concat org-directory "/jira")
       org-templates-dir      (concat org-roam-directory "/templates/")
       org-ledger-dir         (concat org-directory "/ledger/"))
 #+end_src
@@ -207,7 +218,58 @@ Basic JIRA configuration.
 #+begin_src emacs-lisp
 (use-package! org-jira
   :config
-  (setq jiralib-url "https://jira.north.io"))
+  (setq jiralib-url "https://jira.north.io")
+  (setq org-jira-default-jql "assignee = currentUser() and resolution = unresolved and project = DEV ORDER BY\n  priority DESC, created ASC"))
+#+end_src
+
+Main functionaliy: get issues and refile them into roam.
+#+begin_src emacs-lisp
+(defun org-jira--get-project-buffer (Issue)
+  (with-slots (issue-id headline filename) Issue
+    (let* ((org-roam-directory org-jira-working-dir)
+           (issue-s (replace-regexp-in-string "-" "." issue-id))
+           (title (format "issue.%s.%s" issue-s headline))
+           (node (org-roam-node-create :title title))
+           (base-name (org-roam-node-slug node))
+           (file-name (concat base-name ".org"))
+           (issue-template
+            `(("i" "issue" plain "%?"
+               :target (file+head ,file-name ,(ma/read-template "issue"))
+               :immediate-finish t
+               :unnarrowed t))))
+      (oset Issue filename base-name) ; what an ugly hack!
+      (org-roam-capture- :node node :templates issue-template)
+      (org-roam-with-file (concat org-roam-directory "/" file-name) t
+        (current-buffer))
+    )))
+
+(defun org-jira--render-issues-from-issue-list (Issues)
+  (when (eq 0 (->> Issues (cl-remove-if-not #'org-jira-sdk-isa-issue?) length))
+    (setq Issues (org-jira-sdk-create-issues-from-data-list Issues)))
+  (setq Issues (cl-remove-if-not #'org-jira-sdk-isa-issue? Issues))
+  (org-jira-log (format "About to render %d issues." (length Issues)))
+  (mapc 'org-jira--render-issue Issues)
+  (org-save-all-org-buffers)
+  (org-roam-db-sync)
+  (ma/refresh-agenda-files))
+#+end_src
+
+Prevent org-roam from handling JIRA ids as node ids.
+#+begin_src emacs-lisp
+(defun ma/is-jira-node (&optional pom create prefix)
+  (org-with-point-at pom
+    (not (org-entry-get nil "CUSTOM_ID"))))
+
+(require 'org-id)
+(advice-add 'org-id-get :before-while 'ma/is-jira-node)
+#+end_src
+
+**** Keybindings
+
+Redefine org-jira keybindings under C-c j prefix.
+#+begin_src emacs-lisp
+(map! :prefix ("C-c j" . "jira")
+      :desc "refresh" :n "/" #'org-jira-get-issues)
 #+end_src
 
 *** Roam
@@ -220,18 +282,6 @@ Basic setup.
 
 Helpers.
 #+begin_src emacs-lisp
-(defun ma/org-roam-filter-by-tags (tags)
-  (lambda (node)
-    (funcall #'or
-           (mapcar (lambda (tag) (member tag (org-roam-node-tags node)))
-                   tags))))
-
-(defun ma/org-roam-list-notes-by-tags (tags)
-  (mapcar #'org-roam-node-file
-          (seq-filter
-           (ma/org-roam-filter-by-tags tags)
-           (org-roam-node-list))))
-
 (defun ma/org-roam-node-category (node)
   (let ((props (org-roam-node-properties node)))
     (alist-get "CATEGORY" props nil nil #'equal)))
@@ -239,83 +289,14 @@ Helpers.
 (defun ma/org-roam-filter-by-categories (categories)
   (lambda (node)
     (funcall #'or
-           (mapcar (lambda (category) (equal category (org-roam-node-category node)))
-                   tags))))
+           (mapcar (lambda (category) (equal category (ma/org-roam-node-category node)))
+                   categories))))
 
-(defun ma/read-template (filename)
-  "Return the contents of FILENAME."
-  (with-temp-buffer
-    (insert-file-contents (concat org-templates-dir filename))
-    (buffer-string)))
-#+end_src
-
-Define fixed template.
-#+begin_src emacs-lisp
-(setq inbox-template
-      '("x" "inbox" entry
-        "* %?"
-        :if-new (file "inbox.org")
-        :kill-buffer t
-        :unnarrowed t))
-#+end_src
-
-Define daily templates.
-#+begin_src emacs-lisp
-(setq daily-file-format "%<%Y.%m.%d>.org"
-      daily-head-format (ma/read-template "daily.head.org")
-      daily-body-format (ma/read-template "daily.body.org")
-      daily-journal-entry `(file+head+olp ,daily-file-format ,daily-head-format ("Journal"))
-      daily-tasks-entry `(file+head+olp ,daily-file-format ,daily-head-format ("Tasks")))
-#+end_src
-
-Define general templates.
-#+begin_src emacs-lisp
-(setq general-templates
-      '(("book"    . "b")
-        ("course"  . "c")
-        ("project" . "p")
-        ("green"   . "g")))
-#+end_src
-
-Org roam lacks conventient daily capture function, so I add my own here.
-#+begin_src emacs-lisp
-(defun org-roam-daily-capture (keys &optional goto template)
-  (interactive)
-  (let ((org-roam-directory (expand-file-name org-roam-dailies-directory org-roam-directory)))
-    (org-roam-capture- :goto (when goto '(4))
-                       :keys keys
-                       :node (org-roam-node-create)
-                       :templates org-roam-dailies-capture-templates
-                       :props (list :override-default-time (current-time))))
-  (when goto (run-hooks 'org-roam-dailies-find-file-hook)))
-#+end_src
-
-Set up capture templates.
-#+begin_src emacs-lisp
-(defun ma/gen-capture-template (pair)
-  (let* ((category (car pair))
-         (key (cdr pair)))
-    (list key category 'plain
-          `(file ,(concat org-templates-dir category ".body.org"))
-          :if-new (list 'file+head (format "%s.${slug}.org" category) (ma/read-template (concat category ".head.org")))
-          :unnarrowed t)))
-
-(after! org
-    (setq org-roam-capture-templates
-        (cons inbox-template
-                (mapcar #'ma/gen-capture-template general-templates))
-        org-roam-dailies-capture-templates
-        `(("d" "daily" entry
-            ,daily-body-format
-            :if-new ,daily-journal-entry
-            :unnarrowed t))
-        dendroam-capture-templates
-        `(("t" "Note" entry
-            "* TODO %?"
-            :if-new (file+head "${current-file}.%<%Y.%m.%d>.org" ,(ma/read-template "note.head.org")))
-            ("s" "Scratch" entry
-            "* TODO %?"
-            :if-new (file+head "scratch.%<%Y.%m.%d.%.%M%S%3N>.org" ,(ma/read-template "scratch.head.org"))))))
+(defun ma/org-roam-list-notes-by-categories (categories)
+  (mapcar #'org-roam-node-file
+          (seq-filter
+           (ma/org-roam-filter-by-categories categories)
+           (org-roam-node-list))))
 #+end_src
 
 Find file with category.
@@ -327,14 +308,6 @@ Find file with category.
    (lambda (node) (equal (ma/org-roam-node-category node) category))))
 #+end_src
 
-Capture to inbox requires special handling.
-#+begin_src emacs-lisp
-(defun ma/capture-inbox ()
-  (interactive)
-  (org-roam-capture- :node (org-roam-node-create)
-                     :templates (list inbox-template)))
-#+end_src
-
 Refresh agenda files after a node with a tracker tag is created.
 #+begin_src emacs-lisp
 (defun ma/refresh-agenda-hook ()
@@ -342,8 +315,8 @@ Refresh agenda files after a node with a tracker tag is created.
     (unless org-note-abort
       (when-let* ((id (org-roam-capture--get :id))
                   (node (org-roam-node-from-id id))
-                  (tags (org-roam-node-tags node)))
-        (when (seq-intersection tags ma/roam-agenda-tags)
+                  (category (ma/org-roam-node-category node)))
+        (when (member category ma/org-roam-agenda-categories)
           (push (org-roam-node-file node) org-agenda-files))))))
 
 (add-hook 'org-capture-after-finalize-hook #'ma/refresh-agenda-hook)
@@ -362,39 +335,96 @@ Immediate insertion.
       :desc "insert" :g "C-c n I" #'org-roam-node-insert-immediate)
 #+end_src
 
-**** Keybindings
+**** Capture
 
-Set up C-c n keybindings.
+Helper function to read contents of a node template from file.
 #+begin_src emacs-lisp
-(map! :prefix ("C-c n" . "notes")
-      :desc "toggle"  :g "t" #'org-roam-buffer-toggle
-      :desc "find"    :g "f" #'org-roam-node-find
-      :desc "insert"  :g "i" #'org-roam-node-insert
-      :desc "capture" :g "c" #'org-roam-capture
-      :desc "today"   :g "d" (cmd! (org-roam-daily-capture "d" t)))
+(defun ma/read-template (category)
+  "Return the contents of FILENAME."
+  (with-temp-buffer
+    (insert-file-contents (concat org-templates-dir "/" category ".org"))
+    (buffer-string)))
 #+end_src
 
-Set up C-c c capture keybindings.
+Capture with category.
 #+begin_src emacs-lisp
-(map! :prefix ("C-c c" . "capture")
-      :desc "inbox"   :g "x" #'ma/capture-inbox
-      :desc "book"    :g "b" (cmd! (org-roam-capture nil "b"))
-      :desc "course"  :g "c" (cmd! (org-roam-capture nil "c"))
-      :desc "project" :g "p" (cmd! (org-roam-capture nil "p"))
-      :desc "green"   :g "g" (cmd! (org-roam-capture nil "g"))
-      :desc "note"    :g "n" (cmd! (dendroam-insert-time-note t))
-      :desc "scratch" :g "s" (cmd! (dendroam-insert-scratch-note)))
+(defun ma/org-roam-capture (key category entry target &optional GOTO)
+  (let ((org-roam-capture-templates
+        `((,key ,category 'plain
+                ,entry
+                :target ,target
+                :unnarrowed t))))
+    (org-roam-capture
+     (when GOTO '(4))
+     key
+     :filter-fn (lambda (node) (equal (ma/org-roam-node-category node) category)))
+    ))
 #+end_src
 
-Set up C-c f find node keybindings.
+Resource captures.
 #+begin_src emacs-lisp
-(map! :prefix "C-c f"
-      :desc "task"    :m "t" (cmd! (ma/org-roam-find-by-category "daily"))
-      :desc "book"    :m "b" (cmd! (ma/org-roam-find-by-category "book"))
-      :desc "course"  :m "c" (cmd! (ma/org-roam-find-by-category "course"))
-      :desc "green"   :m "g" (cmd! (ma/org-roam-find-by-category "green"))
-      :desc "project" :m "p" (cmd! (ma/org-roam-find-by-category "project")))
+(defun ma/org-roam-capture-resource (key category &optional GOTO)
+  (ma/org-roam-capture
+   key
+   category
+   "* TODO %?"
+   (list 'file+head
+         (format "%s.${slug}.org" category)
+         (ma/read-template category))
+   GOTO))
 #+end_src
+
+Addendum note captures need special treatment.
+#+begin_src emacs-lisp
+(defun ma/org-roam-capture-addendum (key category file-format &optional GOTO)
+  (let* ((head (ma/read-template category))
+         (target (list 'file+head file-format head))
+         (templates`((,key ,category 'plain "%?" :target ,target :unnarrowed t))))
+    (org-roam-capture-
+     :goto (when GOTO '(4))
+     :keys key
+     :node (org-roam-node-create)
+     :templates templates
+     :props (list :default-time (current-time)
+                  :immediate-finish nil))
+    (when GOTO (run-hooks 'org-roam-find-file-hook))))
+#+end_src
+
+Daily captures need special treatment.
+#+begin_src emacs-lisp
+(defun ma/org-roam-capture-daily-to-heading (key category entry file-format heading &optional GOTO FINISH)
+  (let* ((org-roam-directory (expand-file-name org-roam-dailies-directory org-roam-directory))
+         (head (ma/read-template category))
+         (target (list 'file+head+olp file-format head (list heading)))
+         (templates`((,key ,category 'entry "* %?" :target ,target :unnarrowed t))))
+    (org-roam-capture-
+     :goto (when GOTO '(4))
+     :keys key
+     :node (org-roam-node-create)
+     :templates templates
+     :props (list :override-default-time (current-time)
+                  :immediate-finish FINISH))
+    (when GOTO (run-hooks 'org-roam-dailies-find-file-hook))))
+
+(defun ma/org-roam-capture-daily (entry heading &optional GOTO FINISH)
+  (ma/org-roam-capture-daily-to-heading "d" "daily" entry "%<%Y.%m.%d>.org" heading GOTO FINISH))
+#+end_src
+
+Inbox capture.
+#+begin_src emacs-lisp
+(defun ma/capture-inbox ()
+  (interactive)
+  (let ((inbox-template
+         '("x" "inbox" entry
+           "* %?"
+           :target (file+head "inbox.org" "#+TITLE: Inbox")
+           :kill-buffer t
+           :unnarrowed t)
+         ))
+  (org-roam-capture- :node (org-roam-node-create)
+                     :templates (list inbox-template))))
+#+end_src
+
 **** Dendroam
 
 Basic setup.
@@ -431,11 +461,60 @@ Fix dendroam.
                                    ))
 #+end_src
 
+**** Keybindings
+
+Set up C-c n keybindings.
+#+begin_src emacs-lisp
+(map! :prefix ("C-c n" . "notes")
+      :desc "refresh" :g "/" #'org-roam-db-sync
+      :desc "toggle"  :g "t" #'org-roam-buffer-toggle
+      :desc "find"    :g "f" #'org-roam-node-find
+      :desc "insert"  :g "i" #'org-roam-node-insert
+      :desc "capture" :g "c" #'org-roam-capture
+      :desc "today"   :g "d" #'org-roam-dailies-goto-today)
+#+end_src
+
+Set up C-c c capture keybindings.
+#+begin_src emacs-lisp
+(map! :prefix ("C-c c" . "capture")
+      :desc "inbox"   :g "x" #'ma/capture-inbox
+      :desc "article" :g "a" (cmd! (ma/org-roam-capture-resource "a" "article" t))
+      :desc "book"    :g "b" (cmd! (ma/org-roam-capture-resource "b" "book"    t))
+      :desc "course"  :g "c" (cmd! (ma/org-roam-capture-resource "c" "course"  t))
+      :desc "quote"   :g "q" (cmd! (ma/org-roam-capture-resource "q" "quote"   nil))
+      :desc "project" :g "p" (cmd! (ma/org-roam-capture-resource "p" "project" t))
+      :desc "zettel"  :g "z" (cmd! (ma/org-roam-capture-resource "z" "zettel"  t)))
+
+(map! :map org-mode-map
+      :prefix ("C-c c" . "capture")
+      :desc "note"    :g "n" (cmd! (ma/org-roam-capture-addendum "n" "note" "${current-file}.note.%<%Y.%m.%d>.org" nil))
+      :desc "meeting" :g "m" (cmd! (ma/org-roam-capture-addendum "m" "meeting" "${current-file}.meeting.%<%Y.%m.%d>.org" t))
+      :desc "scratch" :g "s" (cmd! (ma/org-roam-capture-addendum "s" "scratch" "scratch.%<%Y.%m.%d.%.%M%S%3N>.org" t)))
+
+(map!
+      :prefix ("C-c c" . "capture")
+      :desc "daily"   :g "d" (cmd! (ma/org-roam-capture-daily "%H:%M : %?" "Journal")))
+#+end_src
+
+Set up C-c f find node keybindings.
+#+begin_src emacs-lisp
+(map! :prefix "C-c f"
+      :desc "task"    :m "t" (cmd! (ma/org-roam-find-by-category "daily"))
+      :desc "article" :m "a" (cmd! (ma/org-roam-find-by-category "article"))
+      :desc "book"    :m "b" (cmd! (ma/org-roam-find-by-category "book"))
+      :desc "quote"   :m "q" (cmd! (ma/org-roam-find-by-category "quote"))
+      :desc "course"  :m "c" (cmd! (ma/org-roam-find-by-category "course"))
+      :desc "zettel"  :m "z" (cmd! (ma/org-roam-find-by-category "zettel"))
+      :desc "issues"  :m "i" (cmd! (ma/org-roam-find-by-category "issue"))
+      :desc "notes"   :m "n" (cmd! (ma/org-roam-find-by-category "note"))
+      :desc "meeting" :m "m" (cmd! (ma/org-roam-find-by-category "meeting"))
+      :desc "project" :m "p" (cmd! (ma/org-roam-find-by-category "project")))
+#+end_src
 *** Agenda
 
 Set up org-agenda.
 #+begin_src emacs-lisp
-(defvar ma/roam-agenda-tags
+(defvar ma/org-roam-agenda-categories
   '("book" "course" "project" "note" "task"))
 
 (defun ma/refresh-agenda-files ()
@@ -443,7 +522,7 @@ Set up org-agenda.
   (setq org-agenda-files
         (append
          (list org-habits-file org-events-file org-list-file)
-         (ma/org-roam-list-notes-by-tags ma/roam-agenda-tags))))
+         (ma/org-roam-list-notes-by-categories ma/org-roam-agenda-categories))))
 
 (after! org
   (ma/refresh-agenda-files)
@@ -456,6 +535,26 @@ Set up org-agenda.
                                ""
                                "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")))
 #+end_src
+
+Because agenda API is so poor, i need to switch to task org file every time I want
+to do anything complicated. This macro helps me automate the process.
+#+begin_src emacs-lisp
+(defmacro agenda-cmd! (&rest body)
+  (declare (doc-string 1) (pure t) (side-effect-free t))
+  `(lambda (&rest _)
+     (interactive)
+     (let* ((marker (or (org-get-at-bol 'org-marker) (org-agenda-error)))
+            (pos (marker-position marker))
+            (buffer (marker-buffer marker)))
+       (org-with-remote-undo buffer
+         (with-current-buffer buffer
+           (goto-char pos)
+           ,@body)))
+     (org-agenda-redo)
+     (org-save-all-org-buffers)))
+#+end_src
+
+**** Groups
 
 Set up org-super-agenda.
 #+begin_src emacs-lisp
@@ -478,6 +577,29 @@ Set up org-super-agenda.
                (file-name (->> marker marker-buffer buffer-name)))
     (concat "Project: " file-name)))
 
+(defun ma/get-keyword-key-value (kwd)
+  (let ((data (cadr kwd)))
+    (list (plist-get data :key)
+          (plist-get data :value))))
+
+(defun ma/org-current-buffer-get-title ()
+  (nth 1
+       (assoc
+        "TITLE"
+        (org-element-map
+            (org-element-parse-buffer 'greater-element)
+            '(keyword)
+          #'ma/get-keyword-key-value))))
+
+(defun ma/org-file-get-title (file)
+  (with-current-buffer (find-file-noselect file)
+    (ma/org-current-buffer-get-title)))
+
+(defun ma/agenda-issue-name (item)
+  (-when-let* ((marker (org-super-agenda--get-marker item))
+               (title (->> marker marker-buffer buffer-name ma/org-file-get-title)))
+    (concat "Issue: " title)))
+
 (use-package! org-super-agenda
   :after org-agenda
   :init
@@ -486,7 +608,7 @@ Set up org-super-agenda.
           ("a" "Agenda view"
            ( ;; A list of sections
             (agenda "" ((org-agenda-overriding-header "")
-                        (org-agenda-prefix-format "   %-20c :   %05e    :   %05t  ")
+                        (org-agenda-prefix-format "   %-20c :   %05e    :   %5t  ")
                         (org-agenda-time-grid nil)
                         (org-super-agenda-groups
                          '((:discard (:todo "DONE"))
@@ -503,7 +625,7 @@ Set up org-super-agenda.
                             (:discard (:anything t))
                            ))))
             (alltodo "" ((org-agenda-overriding-header "")
-                         (org-agenda-prefix-format "   %-20c :   %05e    :   %05t  ")
+                         (org-agenda-prefix-format "   %-20c :   %05e    :   %5t  ")
                          (org-agenda-time-grid nil)
                          (org-agenda-skip-function 'ma/skip-if-blocked)
                          (org-super-agenda-groups
@@ -512,28 +634,35 @@ Set up org-super-agenda.
                             (:name "Executing"
                              :todo "EXEC"
                              :order 1)
-                            (:name "Next"
-                             :todo "NEXT"
+                            (:name "Tasks"
+                             :and (:todo "NEXT" :category "task")
                              :order 2)
+                            (:name "Learning"
+                             :and (:todo "NEXT" :category ("book" "course" "article"))
+                             :order 3)
+                            (:name "Issues"
+                             :and (:todo "NEXT" :category "issue")
+                             :order 4)
                             (:name "On hold"
                              :todo "HOLD"
-                             :order 3)
+                             :order 5)
                             (:name "Waiting"
                              :todo "WAIT"
-                             :order 4)
+                             :order 6)
                             (:name "Lists"
                              :category "list"
-                             :order 5)
+                             :order 7)
                             (:discard (:anything t))
                            ))))
             ))
           ("t" "Tasks view"
            ( ;; A list of sections
             (alltodo "" ((org-agenda-overriding-header "")
-                         (org-agenda-prefix-format "   %-20c :   %05e    :   %05t  %(ma/get-task-prefix) ")
+                         (org-agenda-prefix-format "   %-20c :   %05e    :   %5t  %(ma/get-task-prefix) ")
                          (org-agenda-time-grid nil)
                          (org-super-agenda-groups
-                          '((:discard (:file-path "project\\."))
+                          '((:discard (:file-path "issue\\."))
+                            (:discard (:file-path "project\\."))
                             (:discard (:todo "MAYBE"))
                             (:name "Tasks"
                              :category "task"
@@ -543,7 +672,7 @@ Set up org-super-agenda.
           ("p" "Projects view"
            ( ;; A list of sections
             (alltodo "" ((org-agenda-overriding-header "")
-                         (org-agenda-prefix-format "   %-20c :   %05e    :   %05t  %(ma/get-task-prefix) ")
+                         (org-agenda-prefix-format "   %-20c :   %05e    :   %5t  %(ma/get-task-prefix) ")
                          (org-agenda-time-grid nil)
                          (org-super-agenda-groups
                           '((:discard (:not (:file-path "project\\.")))
@@ -552,10 +681,22 @@ Set up org-super-agenda.
                              :order 1)
                             (:discard (:anything t))
                            ))))))
-          ("i" "Incubators"
+          ("i" "Issues view"
            ( ;; A list of sections
             (alltodo "" ((org-agenda-overriding-header "")
-                         (org-agenda-prefix-format "   %-20c :   %05t  ")
+                         (org-agenda-prefix-format "   %-20c :   %05e    :   %5t  %(ma/get-task-prefix) ")
+                         (org-agenda-time-grid nil)
+                         (org-super-agenda-groups
+                          '((:discard (:not (:file-path "issue\\.")))
+                            (:name "Issue tasks"
+                             :auto-map ma/agenda-issue-name
+                             :order 1)
+                            (:discard (:anything t))
+                           ))))))
+          ("u" "Incubators"
+           ( ;; A list of sections
+            (alltodo "" ((org-agenda-overriding-header "")
+                         (org-agenda-prefix-format "   %-20c :   %5t  ")
                          (org-agenda-time-grid nil)
                          (org-super-agenda-groups
                           '((:discard (:not (:todo "MAYBE")))
@@ -566,7 +707,7 @@ Set up org-super-agenda.
           ("l" "Learning view"
            ( ;; A list of sections
             (alltodo "" ((org-agenda-overriding-header "")
-                         (org-agenda-prefix-format "   %-20c :   %05e    :   %05t  %(ma/get-task-prefix) ")
+                         (org-agenda-prefix-format "   %-20c :   %05e    :   %5t  %(ma/get-task-prefix) ")
                          (org-agenda-time-grid nil)
                          (org-super-agenda-groups
                           '((:name "Learning"
@@ -577,7 +718,7 @@ Set up org-super-agenda.
           ("n" "Notes view"
            ( ;; A list of sections
             (alltodo "" ((org-agenda-overriding-header "")
-                         (org-agenda-prefix-format "   %-20c :   %05t  ")
+                         (org-agenda-prefix-format "   %-20c :   %5t  ")
                          (org-agenda-time-grid nil)
                          (org-super-agenda-groups
                           '((:name "Notes"
@@ -588,7 +729,7 @@ Set up org-super-agenda.
           ("g" "Time grid view"
            ( ;; A list of sections
             (agenda "" ((org-agenda-overriding-header "")
-                        (org-agenda-prefix-format "   %05t  ")
+                        (org-agenda-prefix-format "   %5t  ")
                         (org-super-agenda-groups
                          '((:discard (:habit t))
                            (:name "Today"
@@ -602,32 +743,14 @@ Set up org-super-agenda.
   (org-super-agenda-mode t))
 #+end_src
 
-Because agenda API is so poor, i need to switch to task org file every time I want
-to do anything complicated. This macro helps me automate the process.
-#+begin_src emacs-lisp
-(defmacro agenda-cmd! (&rest body)
-  (declare (doc-string 1) (pure t) (side-effect-free t))
-  `(lambda (&rest _)
-     (interactive)
-     (let* ((marker (or (org-get-at-bol 'org-marker) (org-agenda-error)))
-            (pos (marker-position marker))
-            (buffer (marker-buffer marker)))
-       (org-with-remote-undo buffer
-         (with-current-buffer buffer
-           (goto-char pos)
-           ,@body)))
-     (org-agenda-redo)
-     (org-save-all-org-buffers)))
-#+end_src
-
 **** Keybindings
 
 Set up keybindings.
 #+begin_src emacs-lisp
 (map! :after evil-org-agenda
-      :map evil-org-agenda-mode-map
-      :desc "prev"     :m "k"     #'org-agenda-previous-item
-      :desc "next"     :m "j"     #'org-agenda-next-item)
+      :map (org-agenda-mode-map evil-org-agenda-mode-map org-super-agenda-header-map)
+      :desc "prev"     :g "k"     #'org-agenda-previous-line
+      :desc "next"     :g "j"     #'org-agenda-next-line)
 
 (map! :after org-agenda
       :map org-agenda-mode-map
@@ -647,10 +770,11 @@ Set up keybindings.
       :desc "by effort" :m "e" #'org-agenda-filter-by-effort)
 
 (map! :prefix ("C-c a" . "agenda")
-      :desc "refresh"    :g "r"   #'ma/refresh-agenda-files
+      :desc "refresh"    :g "/"   #'ma/refresh-agenda-files
       :desc "agenda"     :g "a"   (cmd! (org-agenda nil "a"))
       :desc "tasks"      :g "t"   (cmd! (org-agenda nil "t"))
-      :desc "incubators" :g "i"   (cmd! (org-agenda nil "i"))
+      :desc "incubators" :g "u"   (cmd! (org-agenda nil "u"))
+      :desc "issues"     :g "i"   (cmd! (org-agenda nil "i"))
       :desc "projects"   :g "p"   (cmd! (org-agenda nil "p"))
       :desc "learning"   :g "l"   (cmd! (org-agenda nil "l"))
       :desc "notes"      :g "n"   (cmd! (org-agenda nil "n"))
@@ -696,13 +820,11 @@ Refile a task to today's daily note.
 (defun ma/refile-task (&optional state follow)
   (interactive)
   (let ((org-refile-keep nil) ;; Set this to t to keep the original
-        (org-roam-dailies-capture-templates
-         `(("t" "tasks" entry "%?" :if-new ,daily-tasks-entry)))
         (org-after-refile-insert-hook #'save-buffer)
         today-file
         pos)
     (save-window-excursion
-      (org-roam-dailies--capture (current-time) t)
+      (ma/org-roam-capture-daily "* %?" "Tasks" t)
       (setq today-file (buffer-file-name))
       (setq pos (point)))
     ;; Only refile if the target file is different than the current file
@@ -745,7 +867,7 @@ Set up C-c keybindings.
       :desc "task"       :n "t" (cmd! (ma/refile-task "NEXT"))
       :desc "event"      :n "e" (cmd! (ma/refile-to-file org-events-file "TODO"))
       :desc "habits"     :n "h" #'ma/refile-to-habits
-      :desc "incubate"   :n "i" (cmd! (ma/refile-task "MAYBE")))
+      :desc "incubate"   :n "u" (cmd! (ma/refile-task "MAYBE")))
 #+end_src
 
 *** States
@@ -864,13 +986,10 @@ Set up a hook to save clocked time to dailies
          (heading (if (equal major-mode 'org-agenda-mode)
                       (ma/agenda-get-heading t t t t)
                     (org-get-heading t t t t)))
-         (entry (format "** %s - %s : %s" start-time end-time heading))
-         (org-roam-directory (expand-file-name org-roam-dailies-directory org-roam-directory)))
-    (org-roam-capture- :node (org-roam-node-create)
-                       :templates `(("j" "journal" entry ,entry
-                                     :if-new ,daily-journal-entry
-                                     :immediate-finish t)))))
+         (entry (format "** %s - %s : %s" start-time end-time heading)))
+    (ma/org-roam-capture-daily entry "Journal" nil t)
+    ))
 
- (after! org
-   (add-hook 'org-clock-out-hook 'ma/clock-out-handler))
+(after! org-roam
+  (add-hook 'org-clock-out-hook 'ma/clock-out-handler))
 #+end_src
