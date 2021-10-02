@@ -34,6 +34,8 @@ Define colors for todo keywords.
 (setq todo-colors
       '(("TODO"      . (:foreground "#E6B168" :weight normal))
         ("NEXT"      . (:foreground "#ED6165" :weight normal))
+        ("TDAY"      . (:foreground "#439EEA" :wegiht normal))
+        ("WEEK"      . (:foreground "#998CD9" :wegiht normal))
         ("HOLD"      . (:foreground "#439EEA" :wegiht normal))
         ("WAIT"      . (:foreground "#998CD9" :wegiht normal))
         ("MAYBE"     . (:foreground "#998CD9" :wegiht normal))
@@ -198,6 +200,18 @@ Define some keys for convenience.
       :desc "effort"     :m "C-c e" #'org-set-effort)
 #+end_src
 
+Prevent org-drill org-jira from handling their ids as node ids.
+#+begin_src emacs-lisp
+(defun ma/is-genuine-node (&optional pom create prefix)
+  (org-with-point-at pom
+    (and
+     (not (org-entry-get nil "CUSTOM_ID"))
+     (not (member "drill" (org-get-tags))))))
+
+(require 'org-id)
+(advice-add 'org-id-get :before-while 'ma/is-genuine-node)
+#+end_src
+
 *** Habits
 
 Enable org-habit.
@@ -212,6 +226,17 @@ Enable org-habit.
 (after! org
   (add-to-list 'org-modules 'org-habit))
 #+end_src
+*** Drill
+
+Set up org-drill.
+#+begin_src emacs-lisp
+(use-package! org-drill
+  :after org
+  :config
+  (setq org-drill-hide-item-headings-p t
+        org-drill-scope 'agenda))
+#+end_src
+
 *** Jira
 
 Basic JIRA configuration.
@@ -252,16 +277,6 @@ Main functionaliy: get issues and refile them into roam.
   (org-save-all-org-buffers)
   (org-roam-db-sync)
   (ma/refresh-agenda-files))
-#+end_src
-
-Prevent org-roam from handling JIRA ids as node ids.
-#+begin_src emacs-lisp
-(defun ma/is-jira-node (&optional pom create prefix)
-  (org-with-point-at pom
-    (not (org-entry-get nil "CUSTOM_ID"))))
-
-(require 'org-id)
-(advice-add 'org-id-get :before-while 'ma/is-jira-node)
 #+end_src
 
 **** Keybindings
@@ -489,7 +504,7 @@ Set up C-c c capture keybindings.
       :prefix ("C-c c" . "capture")
       :desc "note"    :g "n" (cmd! (ma/org-roam-capture-addendum "n" "note" "${current-file}.note.%<%Y.%m.%d>.org" nil))
       :desc "meeting" :g "m" (cmd! (ma/org-roam-capture-addendum "m" "meeting" "${current-file}.meeting.%<%Y.%m.%d>.org" t))
-      :desc "scratch" :g "s" (cmd! (ma/org-roam-capture-addendum "s" "scratch" "scratch.%<%Y.%m.%d.%.%M%S%3N>.org" t)))
+      :desc "scratch" :g "s" (cmd! (ma/org-roam-capture-addendum "s" "scratch" "scratch.%<%Y.%m.%d.%M%S%3N>.org" t)))
 
 (map!
       :prefix ("C-c c" . "capture")
@@ -558,9 +573,9 @@ to do anything complicated. This macro helps me automate the process.
 
 Set up org-super-agenda.
 #+begin_src emacs-lisp
-(defun ma/get-task-prefix ()
+(defun ma/get-task-prefix (level)
   "Returns task prefix for sue in hierarchical agenda."
-  (let ((level (- (org-outline-level) 2))) ;; Subtract 2 instead of 1 because tasks live under Tasks heading
+  (let ((level (- (org-outline-level) (+ 1 level))))
     (if (> level 0)
         (format "%s-"
                 (make-string (- (* 2 level) 1)
@@ -595,9 +610,12 @@ Set up org-super-agenda.
   (with-current-buffer (find-file-noselect file)
     (ma/org-current-buffer-get-title)))
 
+(defun ma/agenda-title (item)
+  (when-let ((marker (org-super-agenda--get-marker item)))
+    (->> marker marker-buffer buffer-name ma/org-file-get-title)))
+
 (defun ma/agenda-issue-name (item)
-  (-when-let* ((marker (org-super-agenda--get-marker item))
-               (title (->> marker marker-buffer buffer-name ma/org-file-get-title)))
+  (when-let ((title (ma/agenda-title item)))
     (concat "Issue: " title)))
 
 (use-package! org-super-agenda
@@ -658,7 +676,7 @@ Set up org-super-agenda.
           ("t" "Tasks view"
            ( ;; A list of sections
             (alltodo "" ((org-agenda-overriding-header "")
-                         (org-agenda-prefix-format "   %-20c :   %05e    :   %5t  %(ma/get-task-prefix) ")
+                         (org-agenda-prefix-format "   %-20c :   %05e    :   %5t  %(ma/get-task-prefix 1) ")
                          (org-agenda-time-grid nil)
                          (org-super-agenda-groups
                           '((:discard (:file-path "issue\\."))
@@ -672,7 +690,7 @@ Set up org-super-agenda.
           ("p" "Projects view"
            ( ;; A list of sections
             (alltodo "" ((org-agenda-overriding-header "")
-                         (org-agenda-prefix-format "   %-20c :   %05e    :   %5t  %(ma/get-task-prefix) ")
+                         (org-agenda-prefix-format "   %-20c :   %05e    :   %5t  %(ma/get-task-prefix 1) ")
                          (org-agenda-time-grid nil)
                          (org-super-agenda-groups
                           '((:discard (:not (:file-path "project\\.")))
@@ -684,7 +702,7 @@ Set up org-super-agenda.
           ("i" "Issues view"
            ( ;; A list of sections
             (alltodo "" ((org-agenda-overriding-header "")
-                         (org-agenda-prefix-format "   %-20c :   %05e    :   %5t  %(ma/get-task-prefix) ")
+                         (org-agenda-prefix-format "   %-20c :   %05e    :   %5t  %(ma/get-task-prefix 1) ")
                          (org-agenda-time-grid nil)
                          (org-super-agenda-groups
                           '((:discard (:not (:file-path "issue\\.")))
@@ -707,11 +725,13 @@ Set up org-super-agenda.
           ("l" "Learning view"
            ( ;; A list of sections
             (alltodo "" ((org-agenda-overriding-header "")
-                         (org-agenda-prefix-format "   %-20c :   %05e    :   %5t  %(ma/get-task-prefix) ")
+                         (org-agenda-prefix-format "   %-20c :   %05e    :   %5t  %(ma/get-task-prefix 0) ")
                          (org-agenda-time-grid nil)
                          (org-super-agenda-groups
-                          '((:name "Learning"
-                             :and (:todo "NEXT" :category ("book" "course"))
+                          '((:discard (:not (:category ("article" "book" "course"))))
+                            (:discard (:not (:todo ("TDAY" "WEEK" "NEXT"))))
+                            (:name "Learning"
+                             :auto-map ma/agenda-title
                              :order 2)
                             (:discard (:anything t))
                             ))))))

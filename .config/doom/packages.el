@@ -52,5 +52,6 @@
 (package! org-superstar)
 (package! org-super-agenda)
 (package! org-jira)
+(package! org-drill)
 (package! dendroam
   :recipe (:host github :repo "vicrdguez/dendroam" :branch "main"))
