@@ -27,6 +27,9 @@ Auth setup.
 Select a theme.
 #+begin_src emacs-lisp
 (setq doom-theme 'doom-tomorrow-day) ;; Other good themes: doom-one, doom-vibrant.
+(after! doom-themes
+  :config
+  (setq doom-themes-enable-bold nil))
 #+end_src
 
 Define colors for todo keywords.
@@ -34,11 +37,11 @@ Define colors for todo keywords.
 (setq todo-colors
       '(("TODO"      . (:foreground "#E6B168" :weight normal))
         ("NEXT"      . (:foreground "#ED6165" :weight normal))
-        ("TDAY"      . (:foreground "#439EEA" :wegiht normal))
-        ("WEEK"      . (:foreground "#998CD9" :wegiht normal))
-        ("HOLD"      . (:foreground "#439EEA" :wegiht normal))
-        ("WAIT"      . (:foreground "#998CD9" :wegiht normal))
-        ("MAYBE"     . (:foreground "#998CD9" :wegiht normal))
+        ("TDAY"      . (:foreground "#439EEA" :weight normal))
+        ("WEEK"      . (:foreground "#998CD9" :weight normal))
+        ("HOLD"      . (:foreground "#439EEA" :weight normal))
+        ("WAIT"      . (:foreground "#998CD9" :weight normal))
+        ("MAYBE"     . (:foreground "#998CD9" :weight normal))
         ("EXEC"      . (:foreground "#ED6165" :weight bold))
         ("DONE"      . (:foreground "#88B453" :weight normal))
         ("CANCEL"    . (:foreground "#666666" :weight normal))))
@@ -93,12 +96,6 @@ Set up which key delays.
          which-key-idle-secondary-delay 0))
 #+end_src
 
-Remove icons from treemacs.
-#+begin_src emacs-lisp
-(after! treemacs
-  (setq treemacs-no-png-images t))
-#+end_src
-
 Set up projectile default path.
 #+begin_src emacs-lisp
 (after! projectile
@@ -151,6 +148,7 @@ Basic definitions.
       org-inbox-file         org-default-notes-file
       org-events-file        (concat org-directory "/events.org")
       org-habits-file        (concat org-directory "/habits.org")
+      org-shopping-file      (concat org-directory "/shopping.org")
       ;; Dirs
       org-templates-dir      (concat org-roam-directory "/templates/")
       org-ledger-dir         (concat org-directory "/ledger/"))
@@ -229,6 +227,54 @@ Enable org-habit.
 (after! org
   (add-to-list 'org-modules 'org-habit))
 #+end_src
+
+Sorting for habits. Morning habits always come first, evening habits come last. Habits
+without time property come in between. Within one time setting, habits with order property
+come earlier than habits without one.
+#+begin_src emacs-lisp
+(defun ma/org-get-time (entry)
+  (let ((marker (org-super-agenda--get-marker entry)))
+    (org-entry-get marker "TIME")))
+
+(defun ma/org-get-order (entry)
+  (let ((marker (org-super-agenda--get-marker entry)))
+    (string-to-number
+     (or (org-entry-get marker "ORDER") "999"))))
+
+(defun ma/org-agenda-sort-habits (a b)
+  "Sort habits first by user priority, then by schedule+deadline+consistency."
+  (let ((ha (get-text-property 1 'org-habit-p a))
+        (hb (get-text-property 1 'org-habit-p b)))
+    (when (and ha hb)
+      (let ((ta (ma/org-get-time a))
+            (tb (ma/org-get-time b)))
+        (cond ((equal ta tb) (ma/cmp-by-order a b))
+              ((equal ta "morning") -1)
+              ((equal tb "evening") -1)
+              (t +1))))))
+
+(defun ma/cmp-by-order (a b)
+  (let ((oa (ma/org-get-order a))
+        (ob (ma/org-get-order b)))
+    (cond ((> oa ob) +1)
+          ((< oa ob) -1)
+          ((= oa ob) (ma/cmp-by-priority a b)))))
+
+(defun ma/cmp-by-priority (a b)
+  (let ((pa (org-get-priority a))
+        (pb (org-get-priority b)))
+    (cond ((> pa pb) +1)
+          ((< pa pb) -1)
+          ((= pa pb) (org-cmp-values a b 'priority)))))
+
+(after! org
+  (setq org-agenda-cmp-user-defined 'ma/org-agenda-sort-habits
+        org-agenda-sorting-strategy '((agenda time-up user-defined-up habit-down)
+                                      (todo priority-down category-keep)
+                                      (tags priority-down category-keep)
+                                      (search category-keep))))
+#+end_src
+
 *** Drill
 
 Set up org-drill.
@@ -326,6 +372,20 @@ Find file with category.
    (lambda (node) (equal (ma/org-roam-node-category node) category))))
 #+end_src
 
+Find file with name.
+#+begin_src emacs-lisp
+(defun ma/org-roam-find-from-this (category)
+  (let ((current-name (->> (org-roam-node-at-point)
+                           org-roam-node-file
+                           file-name-sans-extension)))
+    (org-roam-node-find
+     nil
+     nil
+     (lambda (node)
+       (and (equal (ma/org-roam-node-category node) category)
+            (s-starts-with-p current-name (org-roam-node-file node)))))))
+#+end_src
+
 Refresh agenda files after a node with a tracker tag is created.
 #+begin_src emacs-lisp
 (defun ma/refresh-agenda-hook ()
@@ -390,8 +450,7 @@ Resource captures.
    (list 'file+head
          (format "%s.${slug}.org" category)
          (ma/read-template category))
-   JUMP
-   t))
+   JUMP))
 #+end_src
 
 Addendum note captures need special treatment.
@@ -411,7 +470,7 @@ Addendum note captures need special treatment.
 
 Daily captures need special treatment.
 #+begin_src emacs-lisp
-(defun ma/org-roam-capture-daily-to-heading (key category entry file-format heading &optional JUMP FINISH PLAIN)
+(defun ma/org-roam-capture-daily-to-heading (key category entry file-format heading &optional JUMP FINISH PLAIN &key goto)
   (let* ((org-roam-directory (expand-file-name org-roam-dailies-directory org-roam-directory))
          (head (ma/read-template category))
          (target (list 'file+head+olp file-format head (list heading)))
@@ -421,15 +480,18 @@ Daily captures need special treatment.
                          :target target
                          :unnarrowed t)))
     (org-roam-capture-
+     :goto (when goto '(4))
      :keys key
      :node (org-roam-node-create)
      :templates (list template)
      :props (list :override-default-time (current-time)
                   :immediate-finish FINISH
-                  :jump-to-captured JUMP))))
+                  :jump-to-captured JUMP))
+  (when goto (run-hooks 'org-roam-dailies-find-file-hook))))
 
-(defun ma/org-roam-capture-daily (entry heading &optional JUMP FINISH PLAIN)
-  (ma/org-roam-capture-daily-to-heading "d" "daily" entry "%<%Y.%m.%d>.org" heading JUMP FINISH PLAIN))
+(defun ma/org-roam-capture-daily (entry heading &optional JUMP FINISH PLAIN &key goto)
+  (ma/org-roam-capture-daily-to-heading "d" "daily" entry "%<%Y.%m.%d>.org" heading JUMP FINISH PLAIN
+                                        :goto goto))
 #+end_src
 
 Inbox capture.
@@ -493,7 +555,7 @@ Set up C-c n keybindings.
       :desc "find"    :g "f" #'org-roam-node-find
       :desc "insert"  :g "i" #'org-roam-node-insert
       :desc "capture" :g "c" #'org-roam-capture
-      :desc "today"   :g "d" #'org-roam-dailies-goto-today)
+      :desc "today"   :g "d" (cmd! (ma/org-roam-capture-daily "" "Journal" :goto t)))
 #+end_src
 
 Set up C-c c capture keybindings.
@@ -529,8 +591,8 @@ Set up C-c f find node keybindings.
       :desc "course"  :m "c" (cmd! (ma/org-roam-find-by-category "course"))
       :desc "zettel"  :m "z" (cmd! (ma/org-roam-find-by-category "zettel"))
       :desc "issues"  :m "i" (cmd! (ma/org-roam-find-by-category "issue"))
-      :desc "notes"   :m "n" (cmd! (ma/org-roam-find-by-category "note"))
-      :desc "meeting" :m "m" (cmd! (ma/org-roam-find-by-category "meeting"))
+      :desc "notes"   :m "n" (cmd! (ma/org-roam-find-from-this "note"))
+      :desc "meeting" :m "m" (cmd! (ma/org-roam-find-from-this "meeting"))
       :desc "project" :m "p" (cmd! (ma/org-roam-find-by-category "project")))
 #+end_src
 *** Agenda
@@ -544,7 +606,7 @@ Set up org-agenda.
   (interactive)
   (setq org-agenda-files
         (append
-         (list org-habits-file org-events-file)
+         (list org-habits-file org-events-file org-shopping-file)
          (ma/org-roam-list-notes-by-categories ma/org-roam-agenda-categories))))
 
 (after! org
@@ -630,6 +692,12 @@ Set up org-super-agenda.
   (when-let ((title (ma/agenda-title item)))
     (concat "Goal: " title)))
 
+(defun ma/get-habit-time-prefix ()
+  (let ((time (org-entry-get (point) "TIME")))
+    (cond ((equal time "morning") "M")
+          ((equal time "evening") "E")
+          (t " "))))
+
 (use-package! org-super-agenda
   :after org-agenda
   :init
@@ -638,7 +706,7 @@ Set up org-super-agenda.
           ("a" "Agenda view"
            ( ;; A list of sections
             (agenda "" ((org-agenda-overriding-header "")
-                        (org-agenda-prefix-format "   %-20c :   %05e    :   %5t  ")
+                        (org-agenda-prefix-format "   %-20c :   %05e    :   %5t  %(ma/get-habit-time-prefix) ")
                         (org-agenda-time-grid nil)
                         (org-super-agenda-groups
                          '((:discard (:todo "DONE"))
@@ -655,7 +723,7 @@ Set up org-super-agenda.
                             (:discard (:anything t))
                            ))))
             (alltodo "" ((org-agenda-overriding-header "")
-                         (org-agenda-prefix-format "   %-20c :   %05e    :   %5t  ")
+                         (org-agenda-prefix-format "   %-20c :   %05e    :     %5t  ")
                          (org-agenda-time-grid nil)
                          (org-agenda-skip-function 'ma/skip-if-blocked)
                          (org-super-agenda-groups
@@ -689,7 +757,7 @@ Set up org-super-agenda.
           ("t" "Tasks view"
            ( ;; A list of sections
             (alltodo "" ((org-agenda-overriding-header "")
-                         (org-agenda-prefix-format "   %-20c :   %05e    :   %5t  %(ma/get-task-prefix 1) ")
+                         (org-agenda-prefix-format "   %-20c :   %05e    :     %5t  %(ma/get-task-prefix 1) ")
                          (org-agenda-time-grid nil)
                          (org-super-agenda-groups
                           '((:discard (:file-path "issue\\."))
@@ -703,7 +771,7 @@ Set up org-super-agenda.
           ("p" "Projects view"
            ( ;; A list of sections
             (alltodo "" ((org-agenda-overriding-header "")
-                         (org-agenda-prefix-format "   %-20c :   %05e    :   %5t  %(ma/get-task-prefix 1) ")
+                         (org-agenda-prefix-format "   %-20c :   %05e    :     %5t  %(ma/get-task-prefix 1) ")
                          (org-agenda-time-grid nil)
                          (org-super-agenda-groups
                           '((:discard (:not (:file-path "project\\.")))
@@ -715,7 +783,7 @@ Set up org-super-agenda.
           ("g" "Goals view"
            ( ;; A list of sections
             (alltodo "" ((org-agenda-overriding-header "")
-                         (org-agenda-prefix-format "   %-20c :   %05e    :   %5t  %(ma/get-task-prefix 1) ")
+                         (org-agenda-prefix-format "   %-20c :   %05e    :     %5t  %(ma/get-task-prefix 1) ")
                          (org-agenda-time-grid nil)
                          (org-super-agenda-groups
                           '((:discard (:not (:file-path "goal\\.")))
@@ -727,7 +795,7 @@ Set up org-super-agenda.
           ("i" "Issues view"
            ( ;; A list of sections
             (alltodo "" ((org-agenda-overriding-header "")
-                         (org-agenda-prefix-format "   %-20c :   %05e    :   %5t  %(ma/get-task-prefix 1) ")
+                         (org-agenda-prefix-format "   %-20c :   %05e    :     %5t  %(ma/get-task-prefix 1) ")
                          (org-agenda-time-grid nil)
                          (org-super-agenda-groups
                           '((:discard (:not (:file-path "issue\\.")))
@@ -739,7 +807,7 @@ Set up org-super-agenda.
           ("u" "Incubators"
            ( ;; A list of sections
             (alltodo "" ((org-agenda-overriding-header "")
-                         (org-agenda-prefix-format "   %-20c :   %5t  ")
+                         (org-agenda-prefix-format "   %-20c :     %5t  ")
                          (org-agenda-time-grid nil)
                          (org-super-agenda-groups
                           '((:discard (:not (:todo "MAYBE")))
@@ -750,7 +818,7 @@ Set up org-super-agenda.
           ("l" "Learning view"
            ( ;; A list of sections
             (alltodo "" ((org-agenda-overriding-header "")
-                         (org-agenda-prefix-format "   %-20c :   %05e    :   %5t  %(ma/get-task-prefix 0) ")
+                         (org-agenda-prefix-format "   %-20c :   %05e    :     %5t  %(ma/get-task-prefix 0) ")
                          (org-agenda-time-grid nil)
                          (org-super-agenda-groups
                           '((:discard (:not (:category ("article" "book" "course"))))
@@ -763,7 +831,7 @@ Set up org-super-agenda.
           ("n" "Notes view"
            ( ;; A list of sections
             (alltodo "" ((org-agenda-overriding-header "")
-                         (org-agenda-prefix-format "   %-20c :   %5t  ")
+                         (org-agenda-prefix-format "   %-20c :     %5t  ")
                          (org-agenda-time-grid nil)
                          (org-super-agenda-groups
                           '((:discard (:tag ("2read" "2watch" "2buy")))
@@ -775,7 +843,7 @@ Set up org-super-agenda.
           ("w" "Wishes view"
            ( ;; A list of sections
             (alltodo "" ((org-agenda-overriding-header "")
-                         (org-agenda-prefix-format "   %-20c :   %5t  ")
+                         (org-agenda-prefix-format "   %-20c :     %5t  ")
                          (org-agenda-time-grid nil)
                          (org-super-agenda-groups
                           '((:discard (:not (:tag ("2buy" "2read" "2watch"))))
@@ -1047,10 +1115,34 @@ Set up a hook to save clocked time to dailies
                       (ma/agenda-get-heading t t t t)
                     (org-get-heading t t t t)))
          (entry (format "** %s - %s : %s" start-time end-time heading)))
-    (ma/org-roam-capture-daily entry "Journal" nil t)
+    (ma/org-roam-capture-daily entry "Journal" nil t t)
     ))
 
 (after! org-roam
   (add-hook 'org-clock-out-hook 'ma/clock-out-handler))
 #+end_src
 
+* DEVELOPMENT
+** Treemacs
+
+#+begin_src emacs-lisp
+(after! treemacs
+  (set-face-attribute 'treemacs-root-face nil :height 1.0)
+  (setq treemacs-no-png-images t
+        doom-themes-treemacs-variable-pitch-face nil
+        doom-themes-treemacs-line-spacing 0.4))
+#+end_src
+** Rust
+
+Set up rust-analyzer.
+#+begin_src emacs-lisp
+(use-package! lsp-rust
+  :init
+  (setq! lsp-rust-analyzer-cargo-watch-enable t
+         lsp-rust-analyzer-cargo-watch-command "clippy"
+         lsp-rust-analyzer-proc-macro-enable t
+         lsp-rust-analyzer-cargo-load-out-dirs-from-check t
+         lsp-rust-analyzer-server-display-inlay-hints t
+         lsp-rust-analyzer-display-chaining-hints t
+         lsp-rust-analyzer-display-parameter-hints t))
+#+end_src
