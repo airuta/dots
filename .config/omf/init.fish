@@ -20,3 +20,7 @@ set -xg PYTHONDONTWRITEBYTECODE 1
 # Other stuff
 set -gx DOOMDIR $XDG_CONFIG_HOME/doom
 set -gx HOMEBREW_CASK_OPTS --appdir=~/Applications --fontdir=~/Fonts
+
+# LLVM
+set -gx LDFLAGS "-L/Users/valeriip/homebrew/opt/llvm/lib"
+set -gx CPPFLAGS "-I/Users/valeriip/homebrew/opt/llvm/include"
