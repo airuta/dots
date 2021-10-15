@@ -49,9 +49,20 @@
 ;; ...Or *all* packages (NOT RECOMMENDED; will likely break things)
 ;(unpin! t)
 
+;; Org modules
 (package! org-superstar)
 (package! org-super-agenda)
 (package! org-jira)
 (package! org-drill)
+
+;; Hierarchical roam
 (package! dendroam
   :recipe (:host github :repo "vicrdguez/dendroam" :branch "main"))
+
+;; Gantt charts and its dependencies
+(package! org-ql)
+(package! ts)
+(package! s)
+(package! dash)
+(package! elgantt
+  :recipe (:host github :repo "legalnonsense/elgantt" :branch "master"))
