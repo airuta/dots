@@ -42,7 +42,7 @@ Define colors for todo keywords.
 (setq todo-colors
       '(("TODO"      . (:foreground "#E6B168" :weight normal))
         ("NEXT"      . (:foreground "#ED6165" :weight normal))
-        ("ITER  "      . (:foreground "#ED6165" :weight normal))
+        ("ITER  "    . (:foreground "#ED6165" :weight normal))
         ("TDAY"      . (:foreground "#439EEA" :weight normal))
         ("WEEK"      . (:foreground "#998CD9" :weight normal))
         ("HOLD"      . (:foreground "#439EEA" :weight normal))
@@ -88,9 +88,19 @@ Define convenient window movement.
       :n "L"   #'evil-window-right)
 #+end_src
 
+Exit parens forward. Useful for programming.
+#+begin_src emacs-lisp
+(map! :i "C-f" #'up-list)
+#+end_src
+
 Disable mouse highlight. Why is it even enabled by default?
 #+begin_src emacs-lisp
 (setq mouse-highlight nil)
+#+end_src
+
+Start weeks on Monday.
+#+begin_src emacs-lisp
+(setq calendar-week-start-day 1)
 #+end_src
 
 * MODULE SETUP
@@ -208,14 +218,12 @@ Define some keys for convenience.
 
 Prevent org-drill org-jira from handling their ids as node ids.
 #+begin_src emacs-lisp
-(defun ma/is-genuine-node (&optional pom create prefix)
+(defun ma/is-file-node (&optional pom create prefix)
   (org-with-point-at pom
-    (and
-     (not (org-entry-get nil "CUSTOM_ID"))
-     (not (member "drill" (org-get-tags))))))
+    (zerop (org-outline-level))))
 
 (require 'org-id)
-(advice-add 'org-id-get :before-while 'ma/is-genuine-node)
+(advice-add 'org-id-get :before-while 'ma/is-file-node)
 #+end_src
 
 *** Habits
@@ -359,11 +367,12 @@ Helpers.
   (lambda (node)
     (member (ma/org-roam-node-category node) categories)))
 
-(defun ma/org-roam-list-nodes-by-categories (categories)
-  (mapcar #'org-roam-node-file
-          (seq-filter
-           (ma/org-roam-filter-by-categories categories)
-           (org-roam-node-list))))
+(defun ma/org-roam-list-files-by-categories (categories)
+  (-distinct
+   (mapcar #'org-roam-node-file
+           (seq-filter
+            (ma/org-roam-filter-by-categories categories)
+            (org-roam-node-list)))))
 #+end_src
 
 Find file with category.
@@ -611,14 +620,14 @@ Set up C-c f find node keybindings.
 Set up org-agenda.
 #+begin_src emacs-lisp
 (defvar ma/org-roam-agenda-categories
-  '("book" "course" "project" "note" "daily" "scratch" "video"))
+  '("goal" "book" "course" "project" "note" "daily" "scratch" "video"))
 
 (defun ma/refresh-agenda-files ()
   (interactive)
   (setq org-agenda-files
         (append
          (list org-habits-file org-events-file org-list-file)
-         (ma/org-roam-list-nodes-by-categories ma/org-roam-agenda-categories))))
+         (ma/org-roam-list-files-by-categories ma/org-roam-agenda-categories))))
 
 (after! org
   (ma/refresh-agenda-files)
@@ -650,9 +659,9 @@ to do anything complicated. This macro helps me automate the process.
      (org-save-all-org-buffers)))
 #+end_src
 
-**** Groups
+**** Views
 
-Set up org-super-agenda.
+Show hierarchical tasks with an indent.
 #+begin_src emacs-lisp
 (defun ma/get-task-prefix (level)
   "Returns task prefix for sue in hierarchical agenda."
@@ -662,17 +671,18 @@ Set up org-super-agenda.
                 (make-string (- (* 2 level) 1)
                              ?\s))
       "")))
+#+end_src
 
+Skip locked tasks in agenda.
+#+begin_src emacs-lisp
 (defun ma/skip-if-blocked ()
   (let ((next-headline (save-excursion
                          (or (outline-next-heading) (point-max)))))
     (if (org-entry-blocked-p) next-headline)))
+#+end_src
 
-(defun ma/agenda-project-name (item)
-  (-when-let* ((marker (org-super-agenda--get-marker item))
-               (file-name (->> marker marker-buffer buffer-name)))
-    (concat "Project: " file-name)))
-
+Get org-roam title for the agenda item.
+#+begin_src emacs-lisp
 (defun ma/get-keyword-key-value (kwd)
   (let ((data (cadr kwd)))
     (list (plist-get data :key)
@@ -694,243 +704,342 @@ Set up org-super-agenda.
 (defun ma/agenda-title (item)
   (when-let ((marker (org-super-agenda--get-marker item)))
     (->> marker marker-buffer buffer-name ma/org-file-get-title)))
+#+end_src
 
-(defun ma/agenda-issue-name (item)
-  (when-let ((title (ma/agenda-title item)))
-    (concat "Issue: " title)))
+***** Dashboard view
 
-(defun ma/agenda-goal-name (item)
-  (when-let ((title (ma/agenda-title item)))
-    (concat "Goal: " title)))
-
+#+begin_src emacs-lisp
 (defun ma/get-habit-time-prefix ()
   (let ((time (org-entry-get (point) "TIME")))
     (cond ((equal time "morning") "M")
           ((equal time "evening") "E")
           (t " "))))
 
+(defun ma/org-clock-sum ()
+  (let ((time (* 60 (org-clock-sum-current-item))))
+    (if (not (zerop time))
+        (format-seconds "%02h:%02m" time)
+      "     ")))
+
+(setq ma/agenda-dashboard-view
+      '("a" "Dashboard"
+        ( ;; A list of sections
+         (agenda "" ((org-agenda-overriding-header "")
+                     (org-agenda-prefix-format "   %-20c :   %05e    :   %(ma/org-clock-sum)  %(ma/get-habit-time-prefix) ")
+                     (org-agenda-time-grid nil)
+                     (org-super-agenda-groups
+                      '((:name "Closed"
+                         :log closed
+                         :order 1)
+                        (:name "Habits"
+                         :habit t
+                         :order 3)
+                        (:name "Today"
+                         :and (:todo "NEXT"
+                               :scheduled today)
+                         :order 2)
+                        (:discard (:anything t))
+                        ))))
+         (alltodo "" ((org-agenda-overriding-header "")
+                      (org-agenda-prefix-format "   %-20c :   %05e    :     %5t  ")
+                      (org-agenda-time-grid nil)
+                      (org-agenda-skip-function 'ma/skip-if-blocked)
+                      (org-super-agenda-groups
+                       '((:discard (:scheduled future))
+                         (:discard (:habit t))
+                         (:name "Executing"
+                          :todo "EXEC"
+                          :order 1)
+                         (:name "Tasks"
+                          :and (:todo "NEXT"
+                                :category "task")
+                          :order 2)
+                         (:name "Learning"
+                          :and (:todo "NEXT"
+                                :category ("book" "course" "article" "video"))
+                          :order 3)
+                         (:name "Working"
+                          :and (:todo "NEXT"
+                                :category ("project" "issue"))
+                          :order 3)
+                         (:name "On hold"
+                          :todo "HOLD"
+                          :order 5)
+                         (:name "Waiting"
+                          :todo "WAIT"
+                          :order 6)
+                         (:discard (:anything t))
+                         ))))
+         )))
+#+end_src
+
+***** Tasks view
+
+#+begin_src emacs-lisp
+(setq ma/agenda-tasks-view
+      '("t" "Tasks view"
+        ( ;; A list of sections
+         (alltodo "" ((org-agenda-overriding-header "")
+                      (org-agenda-prefix-format "   %-20c :   %05e    :     %5t  %(ma/get-task-prefix 1) ")
+                      (org-agenda-time-grid nil)
+                      (org-super-agenda-groups
+                       '((:discard (:file-path "issue\\."))
+                         (:discard (:file-path "project\\."))
+                         (:discard (:todo "MAYBE"))
+                         (:name "Tasks"
+                          :category "task"
+                          :order 1)
+                         (:discard (:anything t))
+                         )))))))
+#+end_src
+
+***** Projects view
+
+#+begin_src emacs-lisp
+(defun ma/agenda-project-name (item)
+  (when-let ((title (ma/agenda-title item)))
+    (concat "Project: " title)))
+
+(setq ma/agenda-projects-view
+      '("p" "Projects view"
+        ( ;; A list of sections
+         (alltodo "" ((org-agenda-overriding-header "")
+                      (org-agenda-prefix-format "   %-20c :    %5t  %(ma/get-task-prefix 1) ")
+                      (org-agenda-time-grid nil)
+                      (org-super-agenda-groups
+                       '((:discard (:not (:category "project")))
+                         (:name "Project tasks"
+                          :auto-map ma/agenda-project-name
+                          :order 1)
+                         (:discard (:anything t))
+                         )))))))
+#+end_src
+
+***** Goals view
+
+#+begin_src emacs-lisp
+(defun ma/agenda-goal-name (item)
+  (when-let ((title (ma/agenda-title item)))
+    (concat "Goal: " title)))
+
+(setq ma/agenda-goals-view
+      '("g" "Goals view"
+        ( ;; A list of sections
+         (alltodo "" ((org-agenda-overriding-header "")
+                      (org-agenda-breadcrumbs-separator "")
+                      (org-agenda-prefix-format "   %-20b :    %5t  %(ma/get-task-prefix 1) ")
+                      (org-agenda-time-grid nil)
+                      (org-super-agenda-groups
+                       '((:discard (:not (:category "goal")))
+                         (:name "Goals and steps"
+                          :auto-map ma/agenda-goal-name
+                          :order 1)
+                         (:discard (:anything t))
+                         )))))))
+#+end_src
+
+***** Issues view
+
+#+begin_src emacs-lisp
+(defun ma/agenda-issue-name (item)
+  (when-let ((title (ma/agenda-title item)))
+    (concat "Issue: " title)))
+
+(setq ma/agenda-issues-view
+      '("i" "Issues view"
+        ( ;; A list of sections
+         (alltodo "" ((org-agenda-overriding-header "")
+                      (org-agenda-prefix-format "   %-20c :   %05e    :     %5t  %(ma/get-task-prefix 1) ")
+                      (org-agenda-time-grid nil)
+                      (org-super-agenda-groups
+                       '((:discard (:not (:file-path "issue\\.")))
+                         (:name "Issue tasks"
+                          :auto-map ma/agenda-issue-name
+                          :order 1)
+                         (:discard (:anything t))
+                         )))))))
+#+end_src
+
+***** Incubators view
+
+#+begin_src emacs-lisp
+(setq ma/agenda-incubators-view
+      '("u" "Incubators"
+        ( ;; A list of sections
+         (alltodo "" ((org-agenda-overriding-header "")
+                      (org-agenda-prefix-format "   %-20c :     %5t  ")
+                      (org-agenda-time-grid nil)
+                      (org-super-agenda-groups
+                       '((:discard (:not (:todo "MAYBE")))
+                         (:auto-tags t
+                          :order 1)
+                         (:discard (:anything t))
+                         )))))))
+#+end_src
+
+***** Learning view
+
+#+begin_src emacs-lisp
+(setq ma/agenda-learning-view
+      '("l" "Learning view"
+        ( ;; A list of sections
+         (alltodo "" ((org-agenda-overriding-header "Daily Goals")
+                      (org-agenda-prefix-format "   %-20c :      %5t ")
+                      (org-agenda-skip-function 'ma/skip-if-blocked)
+                      (org-agenda-time-grid nil)
+                      (org-super-agenda-groups
+                       '((:discard (:not (:category ("article" "book" "course"))))
+                         (:name "Today"
+                          :todo ("TDAY" "NEXT" "EXEC")
+                          :order 2)
+                         (:discard (:anything t))
+                         ))))
+         (alltodo "" ((org-agenda-overriding-header "Weekly Goals")
+                      (org-agenda-prefix-format "   %-20c :    %5t  %(ma/get-task-prefix 0) ")
+                      (org-agenda-time-grid nil)
+                      (org-super-agenda-groups
+                       '((:discard (:not (:category ("article" "book" "course"))))
+                         (:discard (:todo ("DONE" "TODO")))
+                         (:name "Learning"
+                          :auto-map ma/agenda-title
+                          :order 1)
+                         (:discard (:anything t))
+                         )))))))
+#+end_src
+
+***** Videos view
+
+#+begin_src emacs-lisp
+(setq ma/agenda-videos-view
+      '("v" "Videos view"
+        ( ;; A list of sections
+         (alltodo "" ((org-agenda-overriding-header "Weekly Goals")
+                      (org-agenda-prefix-format "   %-20c :    %5t  %(ma/get-task-prefix 0) ")
+                      (org-agenda-time-grid nil)
+                      (org-super-agenda-groups
+                       '((:discard (:not (:category ("video"))))
+                         (:name "Videos"
+                          :auto-map ma/agenda-title
+                          :order 1)
+                         (:discard (:anything t))
+                         )))))))
+#+end_src
+
+***** Notes view
+
+#+begin_src emacs-lisp
+(setq ma/agenda-notes-view
+      '("n" "Notes view"
+        ( ;; A list of sections
+         (alltodo "" ((org-agenda-overriding-header "")
+                      (org-agenda-prefix-format "   %-20c :     %5t  ")
+                      (org-agenda-time-grid nil)
+                      (org-super-agenda-groups
+                       '((:discard (:tag ("2read" "2watch")))
+                         (:name "Notes"
+                          :and (:todo "TODO"
+                                :category ("note" "scratch"))
+                          :order 2)
+                         (:discard (:anything t))
+                         )))))))
+#+end_src
+
+***** Wish views
+
+#+begin_src emacs-lisp
+(setq ma/agenda-wish-shopping-view
+      '("ww" "Shopping"
+        ( ;; A list of sections
+         (alltodo "" ((org-agenda-overriding-header "Shopping")
+                      (org-agenda-prefix-format "   %-20c :     %5t  ")
+                      (org-agenda-time-grid nil)
+                      (org-super-agenda-groups
+                       '((:discard (:not (:category "list")))
+                         (:auto-parent t
+                          :order 1)
+                         (:discard (:anything t))
+                         )))))))
+
+(setq ma/agenda-wish-articles-view
+      '("wa" "Articles"
+        ( ;; A list of sections
+         (alltodo "" ((org-agenda-overriding-header "Articles")
+                      (org-agenda-prefix-format "   %-20c :     %5t  ")
+                      (org-agenda-time-grid nil)
+                      (org-super-agenda-groups
+                       '((:discard (:not (:tag "article")))
+                         (:auto-tags t
+                          :order 1)
+                         (:discard (:anything t))
+                         )))))))
+
+(setq ma/agenda-wish-books-view
+      '("wb" "Books"
+        ( ;; A list of sections
+         (alltodo "" ((org-agenda-overriding-header "Books")
+                      (org-agenda-prefix-format "   %-20c :     %5t  ")
+                      (org-agenda-time-grid nil)
+                      (org-super-agenda-groups
+                       '((:discard (:not (:tag "book")))
+                         (:auto-tags t
+                          :order 1)
+                         (:discard (:anything t))
+                         )))))))
+
+(setq ma/agenda-wish-courses-view
+      '("wc" "Courses"
+        ( ;; A list of sections
+         (alltodo "" ((org-agenda-overriding-header "Courses")
+                      (org-agenda-prefix-format "   %-20c :     %5t  ")
+                      (org-agenda-time-grid nil)
+                      (org-super-agenda-groups
+                       '((:discard (:not (:tag "course")))
+                         (:auto-tags t
+                          :order 1)
+                         (:discard (:anything t))
+                         )))))))
+#+end_src
+
+***** Daily grid view
+
+#+begin_src emacs-lisp
+(setq ma/agenda-daily-view
+      '("d" "Daily view"
+        ( ;; A list of sections
+         (agenda "" ((org-agenda-overriding-header "")
+                     (org-agenda-prefix-format "   %5t  ")
+                     (org-super-agenda-groups
+                      '((:discard (:habit t))
+                        (:name "Today"
+                         :time-grid t
+                         :date today
+                         :order 1)
+                        (:discard (:anything t))
+                        )))))))
+#+end_src
+
+**** Super agenda
+
+#+begin_src emacs-lisp
 (use-package! org-super-agenda
   :after org-agenda
   :init
   (setq org-agenda-custom-commands
-        '( ;; A list of commands
-          ("a" "Agenda view"
-           ( ;; A list of sections
-            (agenda "" ((org-agenda-overriding-header "")
-                        (org-agenda-prefix-format "   %-20c :   %05e    :   %5t  %(ma/get-habit-time-prefix) ")
-                        (org-agenda-time-grid nil)
-                        (org-super-agenda-groups
-                         '((:discard (:todo "DONE"))
-                           (:name "Closed"
-                            :log closed
-                            :order 0)
-                           (:name "Habits"
-                            :habit t
-                            :order 2)
-                           (:name "Today"
-                            :and (:todo "NEXT"
-                                  :date today)
-                            :order 1)
-                            (:discard (:anything t))
-                           ))))
-            (alltodo "" ((org-agenda-overriding-header "")
-                         (org-agenda-prefix-format "   %-20c :   %05e    :     %5t  ")
-                         (org-agenda-time-grid nil)
-                         (org-agenda-skip-function 'ma/skip-if-blocked)
-                         (org-super-agenda-groups
-                          '((:discard (:scheduled future))
-                            (:discard (:habit t))
-                            (:name "Executing"
-                             :todo "EXEC"
-                             :order 1)
-                            (:name "Tasks"
-                             :and (:todo "NEXT"
-                                   :category "task")
-                             :order 2)
-                            (:name "Learning"
-                             :and (:todo "NEXT"
-                                   :category ("book" "course" "article" "video"))
-                             :order 3)
-                            (:name "Issues"
-                             :and (:todo "NEXT"
-                                   :category "issue")
-                             :order 4)
-                            (:name "On hold"
-                             :todo "HOLD"
-                             :order 5)
-                            (:name "Waiting"
-                             :todo "WAIT"
-                             :order 6)
-                            (:discard (:anything t))
-                           ))))
-            ))
-          ("t" "Tasks view"
-           ( ;; A list of sections
-            (alltodo "" ((org-agenda-overriding-header "")
-                         (org-agenda-prefix-format "   %-20c :   %05e    :     %5t  %(ma/get-task-prefix 1) ")
-                         (org-agenda-time-grid nil)
-                         (org-super-agenda-groups
-                          '((:discard (:file-path "issue\\."))
-                            (:discard (:file-path "project\\."))
-                            (:discard (:todo "MAYBE"))
-                            (:name "Tasks"
-                             :category "task"
-                             :order 1)
-                            (:discard (:anything t))
-                           ))))))
-          ("p" "Projects view"
-           ( ;; A list of sections
-            (alltodo "" ((org-agenda-overriding-header "")
-                         (org-agenda-prefix-format "   %-20c :   %05e    :     %5t  %(ma/get-task-prefix 1) ")
-                         (org-agenda-time-grid nil)
-                         (org-super-agenda-groups
-                          '((:discard (:not (:file-path "project\\.")))
-                            (:name "Project tasks"
-                             :auto-map ma/agenda-project-name
-                             :order 1)
-                            (:discard (:anything t))
-                           ))))))
-          ("g" "Goals view"
-           ( ;; A list of sections
-            (alltodo "" ((org-agenda-overriding-header "")
-                         (org-agenda-prefix-format "   %-20c :   %05e    :     %5t  %(ma/get-task-prefix 1) ")
-                         (org-agenda-time-grid nil)
-                         (org-super-agenda-groups
-                          '((:discard (:not (:file-path "goal\\.")))
-                            (:name "Goals and steps"
-                             :auto-map ma/agenda-goal-name
-                             :order 1)
-                            (:discard (:anything t))
-                           ))))))
-          ("i" "Issues view"
-           ( ;; A list of sections
-            (alltodo "" ((org-agenda-overriding-header "")
-                         (org-agenda-prefix-format "   %-20c :   %05e    :     %5t  %(ma/get-task-prefix 1) ")
-                         (org-agenda-time-grid nil)
-                         (org-super-agenda-groups
-                          '((:discard (:not (:file-path "issue\\.")))
-                            (:name "Issue tasks"
-                             :auto-map ma/agenda-issue-name
-                             :order 1)
-                            (:discard (:anything t))
-                           ))))))
-          ("u" "Incubators"
-           ( ;; A list of sections
-            (alltodo "" ((org-agenda-overriding-header "")
-                         (org-agenda-prefix-format "   %-20c :     %5t  ")
-                         (org-agenda-time-grid nil)
-                         (org-super-agenda-groups
-                          '((:discard (:not (:todo "MAYBE")))
-                            (:auto-tags t
-                             :order 1)
-                            (:discard (:anything t))
-                           ))))))
-          ("l" "Learning view"
-           ( ;; A list of sections
-            (alltodo "" ((org-agenda-overriding-header "Daily Goals")
-                         (org-agenda-prefix-format "   %-20c :      %5t ")
-                         (org-agenda-skip-function 'ma/skip-if-blocked)
-                         (org-agenda-time-grid nil)
-                         (org-super-agenda-groups
-                          '((:discard (:not (:category ("article" "book" "course"))))
-                            (:name "Learning"
-                             :todo ("NEXT" "EXEC" "TDAY")
-                             :order 1)
-                            (:discard (:anything t))
-                            ))))
-            (alltodo "" ((org-agenda-overriding-header "Weekly Goals")
-                         (org-agenda-prefix-format "   %-20c :    %5t  %(ma/get-task-prefix 0) ")
-                         (org-agenda-time-grid nil)
-                         (org-super-agenda-groups
-                          '((:discard (:not (:category ("article" "book" "course"))))
-                            (:discard (:todo ("DONE" "TODO")))
-                            (:name "Learning"
-                             :auto-map ma/agenda-title
-                             :order 1)
-                            (:discard (:anything t))
-                            ))))))
-          ("v" "Videos view"
-           ( ;; A list of sections
-            (alltodo "" ((org-agenda-overriding-header "Weekly Goals")
-                         (org-agenda-prefix-format "   %-20c :    %5t  %(ma/get-task-prefix 0) ")
-                         (org-agenda-time-grid nil)
-                         (org-super-agenda-groups
-                          '((:discard (:not (:category ("video"))))
-                            (:name "Videos"
-                             :auto-map ma/agenda-title
-                             :order 1)
-                            (:discard (:anything t))
-                            ))))))
-          ("n" "Notes view"
-           ( ;; A list of sections
-            (alltodo "" ((org-agenda-overriding-header "")
-                         (org-agenda-prefix-format "   %-20c :     %5t  ")
-                         (org-agenda-time-grid nil)
-                         (org-super-agenda-groups
-                          '((:discard (:tag ("2read" "2watch")))
-                            (:name "Notes"
-                             :and (:todo "TODO"
-                                   :category ("note" "scratch"))
-                             :order 2)
-                            (:discard (:anything t))
-                            ))))))
-          ("ww" "Shopping"
-           ( ;; A list of sections
-            (alltodo "" ((org-agenda-overriding-header "Shopping")
-                         (org-agenda-prefix-format "   %-20c :     %5t  ")
-                         (org-agenda-time-grid nil)
-                         (org-super-agenda-groups
-                          '((:discard (:not (:category "list")))
-                            (:auto-parent t
-                             :order 1)
-                            (:discard (:anything t))
-                            ))))))
-          ("wa" "Articles"
-           ( ;; A list of sections
-            (alltodo "" ((org-agenda-overriding-header "Articles")
-                         (org-agenda-prefix-format "   %-20c :     %5t  ")
-                         (org-agenda-time-grid nil)
-                         (org-super-agenda-groups
-                          '((:discard (:not (:tag "article")))
-                            (:auto-tags t
-                             :order 1)
-                            (:discard (:anything t))
-                            ))))))
-          ("wb" "Books"
-           ( ;; A list of sections
-            (alltodo "" ((org-agenda-overriding-header "Books")
-                         (org-agenda-prefix-format "   %-20c :     %5t  ")
-                         (org-agenda-time-grid nil)
-                         (org-super-agenda-groups
-                          '((:discard (:not (:tag "book")))
-                            (:auto-tags t
-                             :order 1)
-                            (:discard (:anything t))
-                            ))))))
-          ("wc" "Courses"
-           ( ;; A list of sections
-            (alltodo "" ((org-agenda-overriding-header "Courses")
-                         (org-agenda-prefix-format "   %-20c :     %5t  ")
-                         (org-agenda-time-grid nil)
-                         (org-super-agenda-groups
-                          '((:discard (:not (:tag "course")))
-                            (:auto-tags t
-                             :order 1)
-                            (:discard (:anything t))
-                            ))))))
-          ("d" "Daily view"
-           ( ;; A list of sections
-            (agenda "" ((org-agenda-overriding-header "")
-                        (org-agenda-prefix-format "   %5t  ")
-                        (org-super-agenda-groups
-                         '((:discard (:habit t))
-                           (:name "Today"
-                            :time-grid t
-                            :date today
-                            :order 1)
-                           (:discard (:anything t))
-                           ))))))
-          ))
+        (list ma/agenda-dashboard-view
+              ma/agenda-tasks-view
+              ma/agenda-projects-view
+              ma/agenda-goals-view
+              ma/agenda-issues-view
+              ma/agenda-incubators-view
+              ma/agenda-learning-view
+              ma/agenda-videos-view
+              ma/agenda-notes-view
+              ma/agenda-wish-shopping-view
+              ma/agenda-wish-articles-view
+              ma/agenda-wish-books-view
+              ma/agenda-wish-courses-view
+              ma/agenda-daily-view
+              ))
   :config
   (org-super-agenda-mode t))
 #+end_src
@@ -1098,6 +1207,7 @@ Defininig my (extremenly simple) state machine.
   (interactive)
   (let ((todo-state (org-get-todo-state)))
     (cond ((equal todo-state "NEXT") (ma/task-start "EXEC"))
+          ((equal todo-state "TDAY") (ma/task-start "EXEC"))
           ((equal todo-state "HOLD") (ma/task-start "EXEC"))
           ((equal todo-state "EXEC") (ma/task-stop "NEXT")))))
 #+end_src
@@ -1193,6 +1303,43 @@ Set up a hook to save clocked time to dailies
 (after! org-roam
   (add-hook 'org-clock-out-hook 'ma/clock-out-handler))
 #+end_src
+*** Gantt
+
+Set up elgantt.
+#+begin_src emacs-lisp
+(use-package! org-ql)
+(use-package! ts)
+(use-package! s)
+(use-package! dash)
+
+(defvar ma/elgantt-categories
+  '("book" "course"))
+
+(defvar ma/elgantt-weekly-todos
+  '("NEXT" "EXEC" "WEEK"))
+
+(defun ma/next-day (day)
+  (ts-adjust 'day day))
+
+(use-package! elgantt
+  :config
+  (setq elgantt-agenda-files (ma/org-roam-list-files-by-categories ma/elgantt-categories)
+        elgantt-header-type (lambda () (ma/org-current-buffer-get-title))
+        elgantt-header-column-offset 50
+        elgantt-deadline-character ":"
+        elgantt-even-numbered-line-change 10
+        elgantt-draw-overarching-headers t
+        elgantt-hide-number-line t
+        elgantt-level-prefix-char "- ")
+  (elgantt-create-display-rule custom-display
+    :args (elgantt-scheduled elgantt-todo)
+    :body ((when (member eglantt-todo ma/elgantt-weekly-todos)
+             (let ((deadline (ma/next-day elgantt-scheduled)))
+               (elgantt--create-overlay (point) (+ 1 (point)))
+               ))
+           )
+    ))
+#+end_src
 
 * DEVELOPMENT
 ** Treemacs
@@ -1216,5 +1363,5 @@ Set up rust-analyzer.
          lsp-rust-analyzer-cargo-load-out-dirs-from-check t
          lsp-rust-analyzer-server-display-inlay-hints t
          lsp-rust-analyzer-display-chaining-hints t
-         lsp-rust-analyzer-display-parameter-hints t))
+         lsp-rust-analyzer-display-parameter-hints nil))
 #+end_src
