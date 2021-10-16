@@ -582,7 +582,7 @@ Set up C-c c capture keybindings.
       :desc "book"    :g "b" (cmd! (ma/org-roam-capture-resource "b" "book"    :jump t))
       :desc "course"  :g "c" (cmd! (ma/org-roam-capture-resource "c" "course"  :jump t))
       :desc "video"   :g "v" (cmd! (ma/org-roam-capture-resource "v" "video"   :jump t))
-      :desc "quote"   :g "q" (cmd! (ma/org-roam-capture-resource "q" "quote"))
+      :desc "quote"   :g "q" (cmd! (ma/org-roam-capture-resource "q" "quote"   :jump nil))
       :desc "project" :g "p" (cmd! (ma/org-roam-capture-resource "p" "project" :jump t))
       :desc "zettel"  :g "z" (cmd! (ma/org-roam-capture-resource "z" "zettel"  :jump t)))
 
@@ -1236,13 +1236,15 @@ I want my hooks to run in specific files only. This macro will automate file nam
 
 I need a way to automatically make next item become "NEXT" when the current one changes to "DONE".
 #+begin_src emacs-lisp
-(defun ma/complete-and-continue ()
+(defun ma/complete-and-continue (from-state)
   "Switch current heading to DONE and next to NEXT."
   (interactive)
   (unless (ma/is-top-level)
     (when (save-excursion (outline-get-next-sibling))
       (org-forward-heading-same-level 1)
-      (org-todo "NEXT"))))
+      (when (member from-state ("TODO" "TDAY"))
+        ;; FIXME: Change first child (and its first child etc. recursively) to NEXT as well.
+        (org-todo "NEXT")))))
 #+end_src
 
 I need to auto-done parents when all childrern are "DONE" or checked.
