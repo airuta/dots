@@ -252,7 +252,10 @@ come earlier than habits without one.
 (defun ma/org-get-order (entry)
   (let ((marker (org-super-agenda--get-marker entry)))
     (string-to-number
-     (or (org-entry-get marker "ORDER") "999"))))
+     (or (org-entry-get marker "ORDER")
+         (if (equal (ma/org-get-time entry) "morning")
+             "999"
+           "-1")))))
 
 (defun ma/org-agenda-sort-habits (a b)
   "Sort habits first by user priority, then by schedule+deadline+consistency."
@@ -895,7 +898,7 @@ Get org-roam title for the agenda item.
                          (:discard (:anything t))
                          ))))
          (alltodo "" ((org-agenda-overriding-header "Weekly Goals")
-                      (org-agenda-prefix-format "   %-20c :    %5t  %(ma/get-task-prefix 0) ")
+                      (org-agenda-prefix-format "   %-20c :      %5t  ")
                       (org-agenda-time-grid nil)
                       (org-super-agenda-groups
                        '((:discard (:not (:category ("article" "book" "course"))))
@@ -1183,6 +1186,8 @@ Set up C-c keybindings.
 
 Defininig my (extremenly simple) state machine.
 #+begin_src emacs-lisp
+(setq ma/learning-categories '("book" "course" "article" "video"))
+
 (defun ma/task-start (state)
   (when (member (org-get-todo-state) '("NEXT" "HOLD"))
     (org-todo state)
@@ -1206,16 +1211,17 @@ Defininig my (extremenly simple) state machine.
 (defun ma/task-toggle ()
   (interactive)
   (let ((todo-state (org-get-todo-state)))
-    (cond ((equal todo-state "NEXT") (ma/task-start "EXEC"))
-          ((equal todo-state "TDAY") (ma/task-start "EXEC"))
-          ((equal todo-state "HOLD") (ma/task-start "EXEC"))
+    (cond ((member todo-state '("NEXT" "TDAY" "HOLD")) (ma/task-start "EXEC"))
           ((equal todo-state "EXEC") (ma/task-stop "NEXT")))))
 #+end_src
 
 Define helper functions.
 #+begin_src emacs-lisp
 (defun ma/is-top-level ()
-  (equal (org-outline-level) 2)) ;; 2 because tasks live under Tasks heading
+  (let* ((category (org-get-category))
+         (level (org-outline-level)))
+    (cond ((equal category "task") (equal level 2))                     ; Tasks live under task heading, so top-level for a task is 2
+          ((member category ma/learning-categories) (equal level 0))))) ; These categories have no top level
 
 (defun ma/has-tag (tag)
   (member tag (org-get-tags)))
@@ -1229,22 +1235,26 @@ I want my hooks to run in specific files only. This macro will automate file nam
   "Run command only in buffer specified by `ma/todo-completion-category'."
   (declare (doc-string 1) (pure t) (side-effect-free t))
   `(lambda (&rest rest)
-    (when (member (org-get-category) ma/todo-completion-categories)
-      (interactive)
-      (apply ,fn rest))))
+     (when (member (org-get-category) ma/todo-completion-categories)
+       (interactive)
+       (apply ,fn rest))))
 #+end_src
 
 I need a way to automatically make next item become "NEXT" when the current one changes to "DONE".
 #+begin_src emacs-lisp
-(defun ma/complete-and-continue (from-state)
+(defun ma/complete-and-continue ()
   "Switch current heading to DONE and next to NEXT."
   (interactive)
   (unless (ma/is-top-level)
     (when (save-excursion (outline-get-next-sibling))
       (org-forward-heading-same-level 1)
-      (when (member from-state ("TODO" "TDAY"))
-        ;; FIXME: Change first child (and its first child etc. recursively) to NEXT as well.
-        (org-todo "NEXT")))))
+      ;; FIXME: Change first child (and its first child etc. recursively) to NEXT as well.
+      (let* ((category (org-get-category))
+             (state (org-get-todo-state)))
+        (cond ((member category ma/learning-categories)
+               (when (equal state "TDAY") (org-todo "NEXT")))
+              ((equal category "task")
+               (when (equal state "TODO") (org-todo "NEXT"))))))))
 #+end_src
 
 I need to auto-done parents when all childrern are "DONE" or checked.
@@ -1267,7 +1277,7 @@ I need to set the next sibling to "NEXT" when the current one is "DONE".
 Use what I defined in the todo hooks.
 #+begin_src emacs-lisp
 (after! org
-  (setq ma/todo-completion-categories '("task" "book" "course" "article")))
+  (setq ma/todo-completion-categories '("task" "book" "course" "article" "video")))
 
 (after! org
   (add-hook 'org-after-todo-statistics-hook (todo-completion! 'ma/summary-todo))
