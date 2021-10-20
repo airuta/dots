@@ -104,6 +104,7 @@ Start weeks on Monday.
 #+end_src
 
 * MODULE SETUP
+** Which key
 
 Set up which key delays.
 #+begin_src emacs-lisp
@@ -200,26 +201,27 @@ Must-have tags, these should be settable from everywhere.
 Set up go-to keybindings.
 #+begin_src emacs-lisp
 (map! :prefix ("C-c f" . "files")
-      :desc "inbox"    :m "x" (cmd! (find-file org-inbox-file))
-      :desc "events"   :m "e" (cmd! (find-file org-events-file))
-      :desc "habits"   :m "h" (cmd! (find-file org-habits-file))
-      :desc "list"     :m "l" (cmd! (find-file org-list-file)))
+      :desc "inbox"    :g "x" (cmd! (find-file org-inbox-file))
+      :desc "events"   :g "e" (cmd! (find-file org-events-file))
+      :desc "habits"   :g "h" (cmd! (find-file org-habits-file))
+      :desc "list"     :g "l" (cmd! (find-file org-list-file)))
 #+end_src
 
 Define some keys for convenience.
 #+begin_src emacs-lisp
 (map! :map org-mode-map
-      :desc "prev-hl"    :m "C-k"   #'org-previous-visible-heading
-      :desc "next-hl"    :m "C-j"   #'org-next-visible-heading
-      :desc "store link" :m "C-c l" #'org-store-link
-      :desc "execute"    :m "C-c x" (cmd! (ma/task-toggle))
-      :desc "complete"   :m "C-c d" (cmd! (ma/task-done))
-      :desc "hold"       :m "C-c h" (cmd! (ma/task-hold))
-      :desc "wait"       :m "C-c w" (cmd! (ma/task-wait))
-      :desc "schedule"   :m "C-c s" #'org-schedule
-      :desc "deadline"   :m "C-c l" #'org-deadline
-      :desc "tag"        :m "C-c t" #'org-ctrl-c-ctrl-c
-      :desc "effort"     :m "C-c e" #'org-set-effort)
+      :desc "prev-hl"    :g "C-k"   #'org-previous-visible-heading
+      :desc "next-hl"    :g "C-j"   #'org-next-visible-heading
+      :desc "execute"    :g "C-c x" (cmd! (ma/task-toggle))
+      :desc "complete"   :g "C-c d" (cmd! (ma/task-done))
+      :desc "hold"       :g "C-c h" (cmd! (ma/task-hold))
+      :desc "wait"       :g "C-c w" (cmd! (ma/task-wait))
+      :desc "next"       :g "C-c n" (cmd! (ma/task-next))
+      :desc "tag"        :g "C-c t" #'org-ctrl-c-ctrl-c
+      :desc "effort"     :g "C-c e" #'org-set-effort
+      :prefix ("C-c s" . "schedule")
+      :desc "schedule"   :g "s" #'org-schedule
+      :desc "deadline"   :g "d" #'org-deadline)
 #+end_src
 
 Prevent org-drill org-jira from handling their ids as node ids.
@@ -431,7 +433,7 @@ Immediate insertion.
     (apply #'org-roam-node-insert args)))
 
 (map! :map org-mode-map
-      :desc "insert" :g "C-c n I" #'org-roam-node-insert-immediate)
+      :desc "insert" :g "C-c r I" #'org-roam-node-insert-immediate)
 #+end_src
 
 **** Capture
@@ -572,9 +574,9 @@ Fix dendroam.
 
 **** Keybindings
 
-Set up C-c n keybindings.
+Set up C-c m keybindings.
 #+begin_src emacs-lisp
-(map! :prefix ("C-c n" . "notes")
+(map! :prefix ("C-c m" . "roam")
       :desc "refresh" :g "/" #'org-roam-db-sync
       :desc "toggle"  :g "t" #'org-roam-buffer-toggle
       :desc "find"    :g "f" #'org-roam-node-find
@@ -602,26 +604,26 @@ Set up C-c c capture keybindings.
       :desc "scratch" :g "s" (cmd! (ma/org-roam-capture-addendum "s" "scratch" "scratch.%<%Y.%m.%d.%M%S%3N>.org" :jump t)))
 
 (map! :prefix ("C-c c" . "capture")
-      :desc "daily"   :g "d" (cmd! (ma/org-roam-capture-daily "%H:%M : %?" "Journal")))
+      :desc "daily"   :g "d" (cmd! (ma/org-roam-capture-daily "%H:%M : %?" "Journal" :jump nil :plain nil :goto t)))
 #+end_src
 
 Set up C-c f find node keybindings.
 #+begin_src emacs-lisp
 (map! :prefix "C-c f"
-      :desc "daily"   :m "d" (cmd! (ma/org-roam-find-by-category "daily"))
-      :desc "today"   :m "t" (cmd! (ma/org-roam-capture-daily "" "Journal" :jump t :plain t :goto t))
-      :desc "article" :m "a" (cmd! (ma/org-roam-find-by-category "article"))
-      :desc "book"    :m "b" (cmd! (ma/org-roam-find-by-category "book"))
-      :desc "book"    :m "v" (cmd! (ma/org-roam-find-by-category "video"))
-      :desc "goal"    :m "g" (cmd! (ma/org-roam-find-by-category "goal"))
-      :desc "quote"   :m "q" (cmd! (ma/org-roam-find-by-category "quote"))
-      :desc "course"  :m "c" (cmd! (ma/org-roam-find-by-category "course"))
-      :desc "zettel"  :m "z" (cmd! (ma/org-roam-find-by-category "zettel"))
-      :desc "scratch" :m "s" (cmd! (ma/org-roam-find-by-category "scratch"))
-      :desc "issues"  :m "i" (cmd! (ma/org-roam-find-by-category "issue"))
-      :desc "notes"   :m "n" (cmd! (ma/org-roam-find-from-this "note"))
-      :desc "meeting" :m "m" (cmd! (ma/org-roam-find-from-this "meeting"))
-      :desc "project" :m "p" (cmd! (ma/org-roam-find-by-category "project")))
+      :desc "daily"   :g "d" (cmd! (ma/org-roam-find-by-category "daily"))
+      :desc "today"   :g "t" (cmd! (ma/org-roam-capture-daily "" "Journal" :jump t :plain t :goto t))
+      :desc "article" :g "a" (cmd! (ma/org-roam-find-by-category "article"))
+      :desc "book"    :g "b" (cmd! (ma/org-roam-find-by-category "book"))
+      :desc "book"    :g "v" (cmd! (ma/org-roam-find-by-category "video"))
+      :desc "goal"    :g "g" (cmd! (ma/org-roam-find-by-category "goal"))
+      :desc "quote"   :g "q" (cmd! (ma/org-roam-find-by-category "quote"))
+      :desc "course"  :g "c" (cmd! (ma/org-roam-find-by-category "course"))
+      :desc "zettel"  :g "z" (cmd! (ma/org-roam-find-by-category "zettel"))
+      :desc "scratch" :g "s" (cmd! (ma/org-roam-find-by-category "scratch"))
+      :desc "issues"  :g "i" (cmd! (ma/org-roam-find-by-category "issue"))
+      :desc "notes"   :g "n" (cmd! (ma/org-roam-find-from-this "note"))
+      :desc "meeting" :g "m" (cmd! (ma/org-roam-find-from-this "meeting"))
+      :desc "project" :g "p" (cmd! (ma/org-roam-find-by-category "project")))
 #+end_src
 
 *** Agenda
@@ -1063,17 +1065,20 @@ Set up keybindings.
       :desc "next"     :g "j"     #'org-agenda-next-line)
 
 (map! :after org-agenda
-      :map org-agenda-mode-map
+      :map (evil-org-agenda-mode-map org-agenda-mode-map org-super-agenda-header-map)
       ;; Entry manipulation
       :prefix "C-c"
       :desc "complete" :g "d" (agenda-cmd! (ma/task-done))
       :desc "hold"     :g "h" (agenda-cmd! (ma/task-hold))
       :desc "wait"     :g "w" (agenda-cmd! (ma/task-wait))
+      :desc "next"     :g "n" (agenda-cmd! (ma/task-next))
       :desc "execute"  :g "x" (agenda-cmd! (ma/task-toggle))
-      :desc "schedule" :g "s" (agenda-cmd! (org-schedule nil))
-      :desc "deadline" :g "l" (agenda-cmd! (org-deadline nil))
       :desc "tag"      :g "t" (agenda-cmd! (org-ctrl-c-ctrl-c))
       :desc "effort"   :g "e" (agenda-cmd! (org-set-effort))
+      ;; Schedule
+      :prefix ("C-c s" . "schedule")
+      :desc "schedule" :g "s" (agenda-cmd! (org-schedule nil))
+      :desc "deadline" :g "d" (agenda-cmd! (org-deadline nil))
       ;; Filtering
       :prefix ("C-c a f" . "filter")
       :desc "by tag"    :m "t" #'org-agenda-filter-by-tag
@@ -1213,6 +1218,9 @@ Defininig my (extremenly simple) state machine.
 
 (defun ma/task-wait ()
   (org-todo "WAIT"))
+
+(defun ma/task-next ()
+  (org-todo "NEXT"))
 
 (defun ma/task-toggle ()
   (interactive)
