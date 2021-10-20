@@ -17,7 +17,7 @@ User information.
 
 Drive folder.
 #+begin_src emacs-lisp
-(setq drive-folder "~/Dropbox")
+(setq root-directory "~/Dropbox")
 #+end_src
 
 Auth setup.
@@ -112,13 +112,15 @@ Set up which key delays.
          which-key-idle-secondary-delay 0))
 #+end_src
 
-Set up projectile default path.
+** Projectile
+
+Set up project path.
 #+begin_src emacs-lisp
 (after! projectile
-  (setq projectile-project-search-path (list (concat drive-folder "/forge"))))
+  (setq projectile-project-search-path (list (concat root-directory "/forge"))))
 #+end_src
 
-*** Evil
+** Evil
 
 Set up evil-snipe.
 #+begin_src emacs-lisp
@@ -127,7 +129,13 @@ Set up evil-snipe.
         evil-snipe-override-mode t))
 #+end_src
 
-* ORG MODE
+* ORGANIZATION
+** Org Mode
+
+Basic definitions.
+#+begin_src emacs-lisp
+(setq org-directory (concat root-directory "/organization"))
+#+end_src
 
 Make property inheritance work.
 #+begin_src emacs-lisp
@@ -150,12 +158,11 @@ Prettify org mode a bit.
   (setq org-ellipsis " ▾"))
 #+end_src
 
-** GTD
+** Getting Things Done
 
 Basic definitions.
 #+begin_src emacs-lisp
 (setq ;; System locations
-      org-directory          (concat drive-folder "/org")
       org-roam-directory     (concat org-directory "/roam")
       org-default-notes-file (concat org-roam-directory "/inbox.org")
       org-jira-working-dir   (concat org-roam-directory "/jira")
@@ -166,8 +173,7 @@ Basic definitions.
       org-habits-file        (concat org-directory "/habits.org")
       org-list-file          (concat org-directory "/list.org")
       ;; Dirs
-      org-templates-dir      (concat org-roam-directory "/templates/")
-      org-ledger-dir         (concat org-directory "/ledger/"))
+      org-templates-dir      (concat org-roam-directory "/templates/"))
 #+end_src
 
 Org mode todo items keywords.
