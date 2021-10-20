@@ -833,12 +833,14 @@ Get org-roam title for the agenda item.
   (when-let ((title (ma/agenda-title item)))
     (concat "Goal: " title)))
 
+(defun ma/get-goal-group ()
+  (format "%-20s" (car (org-get-outline-path))))
+
 (setq ma/agenda-goals-view
       '("g" "Goals view"
         ( ;; A list of sections
          (alltodo "" ((org-agenda-overriding-header "")
-                      (org-agenda-breadcrumbs-separator "")
-                      (org-agenda-prefix-format "   %-20b :    %5t  %(ma/get-task-prefix 1) ")
+                      (org-agenda-prefix-format "   %(ma/get-goal-group) :    %5t  %(ma/get-task-prefix 1) ")
                       (org-agenda-time-grid nil)
                       (org-super-agenda-groups
                        '((:discard (:not (:category "goal")))
@@ -863,7 +865,7 @@ Get org-roam title for the agenda item.
                       (org-agenda-prefix-format "   %-20c :   %05e    :     %5t  %(ma/get-task-prefix 1) ")
                       (org-agenda-time-grid nil)
                       (org-super-agenda-groups
-                       '((:discard (:not (:file-path "issue\\.")))
+                       '((:discard (:not (:category "issue")))
                          (:name "Issue tasks"
                           :auto-map ma/agenda-issue-name
                           :order 1)
