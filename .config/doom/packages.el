@@ -66,3 +66,6 @@
 (package! dash)
 (package! elgantt
   :recipe (:host github :repo "legalnonsense/elgantt" :branch "master"))
+
+;; Ledger mode
+(package! ledger-mode)
