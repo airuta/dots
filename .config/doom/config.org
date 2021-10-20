@@ -631,7 +631,7 @@ Set up C-c f find node keybindings.
 Set up org-agenda.
 #+begin_src emacs-lisp
 (defvar ma/org-roam-agenda-categories
-  '("goal" "book" "course" "project" "note" "daily" "scratch" "video"))
+  '("goal" "book" "course" "project" "note" "daily" "scratch" "video" "issue"))
 
 (defun ma/refresh-agenda-files ()
   (interactive)
@@ -1198,6 +1198,7 @@ Set up C-c keybindings.
 Defininig my (extremenly simple) state machine.
 #+begin_src emacs-lisp
 (setq ma/learning-categories '("book" "course" "article" "video"))
+(setq ma/working-categories '("task" "issue"))
 
 (defun ma/task-start (state)
   (when (member (org-get-todo-state) '("NEXT" "HOLD"))
@@ -1231,11 +1232,11 @@ Defininig my (extremenly simple) state machine.
 
 Define helper functions.
 #+begin_src emacs-lisp
-(defun ma/is-top-level ()
+(defun ma/under-top-level ()
   (let* ((category (org-get-category))
          (level (org-outline-level)))
-    (cond ((equal category "task") (equal level 2))                     ; Tasks live under task heading, so top-level for a task is 2
-          ((member category ma/learning-categories) (equal level 0))))) ; These categories have no top level
+    (cond ((member category ma/working-categories) (> level 2))     ; Tasks live under task heading, so top-level for a task is 2
+          ((member category ma/learning-categories) (> level 0))))) ; These categories have no top level
 
 (defun ma/has-tag (tag)
   (member tag (org-get-tags)))
@@ -1259,7 +1260,7 @@ I need a way to automatically make next item become "NEXT" when the current one 
 (defun ma/complete-and-continue ()
   "Switch current heading to DONE and next to NEXT."
   (interactive)
-  (unless (ma/is-top-level)
+  (when (ma/under-top-level)
     (when (save-excursion (outline-get-next-sibling))
       (org-forward-heading-same-level 1)
       ;; FIXME: Change first child (and its first child etc. recursively) to NEXT as well.
@@ -1267,7 +1268,7 @@ I need a way to automatically make next item become "NEXT" when the current one 
              (state (org-get-todo-state)))
         (cond ((member category ma/learning-categories)
                (when (equal state "TDAY") (org-todo "NEXT")))
-              ((equal category "task")
+              ((member category ma/working-categories)
                (when (equal state "TODO") (org-todo "NEXT"))))))))
 #+end_src
 
@@ -1284,14 +1285,13 @@ I need to set the next sibling to "NEXT" when the current one is "DONE".
   (let ((from-state (plist-get change :from))
         (to-state (plist-get change :to)))
     (when (and (member from-state '("NEXT" "EXEC" "HOLD" "WAIT" "TDAY")) (equal to-state "DONE"))
-      (unless (ma/is-top-level)
-        (ma/complete-and-continue)))))
+      (ma/complete-and-continue))))
 #+end_src
 
 Use what I defined in the todo hooks.
 #+begin_src emacs-lisp
 (after! org
-  (setq ma/todo-completion-categories '("task" "book" "course" "article" "video")))
+  (setq ma/todo-completion-categories '("task" "book" "course" "article" "video" "issue")))
 
 (after! org
   (add-hook 'org-after-todo-statistics-hook (todo-completion! 'ma/summary-todo))
