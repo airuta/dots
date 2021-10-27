@@ -69,3 +69,6 @@
 
 ;; Ledger mode
 (package! ledger-mode)
+
+;; Folding
+(package! origami)

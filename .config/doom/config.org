@@ -40,17 +40,17 @@ Select a theme.
 Define colors for todo keywords.
 #+begin_src emacs-lisp
 (setq todo-colors
-      '(("TODO"      . (:foreground "#E6B168" :weight normal))
-        ("NEXT"      . (:foreground "#ED6165" :weight normal))
-        ("ITER  "    . (:foreground "#ED6165" :weight normal))
-        ("TDAY"      . (:foreground "#439EEA" :weight normal))
-        ("WEEK"      . (:foreground "#998CD9" :weight normal))
-        ("HOLD"      . (:foreground "#439EEA" :weight normal))
-        ("WAIT"      . (:foreground "#998CD9" :weight normal))
-        ("MAYBE"     . (:foreground "#998CD9" :weight normal))
-        ("EXEC"      . (:foreground "#ED6165" :weight bold))
-        ("DONE"      . (:foreground "#88B453" :weight normal))
-        ("CANCEL"    . (:foreground "#666666" :weight normal))))
+      '(("TODO"  . (:foreground "#E6B168" :weight normal))
+        ("NEXT"  . (:foreground "#ED6165" :weight normal))
+        ("TDAY"  . (:foreground "#439EEA" :weight normal))
+        ("WEEK"  . (:foreground "#998CD9" :weight normal))
+        ("HABT"  . (:foreground "#439EEA" :weight normal))
+        ("HOLD"  . (:foreground "#439EEA" :weight normal))
+        ("WAIT"  . (:foreground "#998CD9" :weight normal))
+        ("MAYBE" . (:foreground "#998CD9" :weight normal))
+        ("EXEC"  . (:foreground "#ED6165" :weight bold))
+        ("DONE"  . (:foreground "#88B453" :weight normal))
+        ("CNCL"  . (:foreground "#666666" :weight normal))))
 #+end_src
 
 Font and line spacing.
@@ -726,29 +726,41 @@ Get org-roam title for the agenda item.
           ((equal time "evening") "E")
           (t " "))))
 
-(defun ma/org-clock-sum ()
-  (let ((time (* 60 (org-clock-sum-current-item))))
-    (if (not (zerop time))
-        (format-seconds "%02h:%02m" time)
-      "     ")))
+(defun ma/org-get-scheduled-time ()
+  (if-let ((time (org-get-scheduled-time (point))))
+      (org-format-time-string "%H:%M" time)
+    "     "))
+
+(defun ma/org-clock-sum-or-schedule ()
+  (if (org-is-habit-p (point))
+      (let ((time (* 60 (org-clock-sum-current-item))))
+        (if (not (zerop time))
+            (format-seconds "%02h:%02m" time)
+          "     "))
+    (ma/org-get-scheduled-time)))
 
 (setq ma/agenda-dashboard-view
       '("a" "Dashboard"
         ( ;; A list of sections
          (agenda "" ((org-agenda-overriding-header "")
-                     (org-agenda-prefix-format "   %-20c :   %05e    :   %(ma/org-clock-sum)  %(ma/get-habit-time-prefix) ")
+                     (org-agenda-prefix-format "   %-20c :   %05e    :   %(ma/org-clock-sum-or-schedule)  %(ma/get-habit-time-prefix) ")
                      (org-agenda-time-grid nil)
                      (org-super-agenda-groups
                       '((:name "Closed"
-                         :log closed
+                         :and (:log closed
+                               :category "task")
                          :order 1)
+                        (:name "Learned"
+                         :and (:log closed
+                               :category ("book" "course" "video" "article"))
+                         :order 2)
                         (:name "Habits"
                          :habit t
-                         :order 3)
+                         :order 4)
                         (:name "Today"
                          :and (:todo "NEXT"
                                :scheduled today)
-                         :order 2)
+                         :order 3)
                         (:discard (:anything t))
                         ))))
          (alltodo "" ((org-agenda-overriding-header "")
@@ -766,19 +778,23 @@ Get org-roam title for the agenda item.
                                 :category "task")
                           :order 2)
                          (:name "Learning"
-                          :and (:todo "NEXT"
-                                :category ("book" "course" "article" "video"))
+                          :and (:todo ("NEXT" "TDAY")
+                                :category ("book" "course" "article"))
                           :order 3)
+                         (:name "Inspiration"
+                          :and (:todo "NEXT"
+                                :category ("video" "article"))
+                          :order 4)
                          (:name "Working"
                           :and (:todo "NEXT"
                                 :category ("project" "issue"))
-                          :order 3)
+                          :order 5)
                          (:name "On hold"
                           :todo "HOLD"
-                          :order 5)
+                          :order 6)
                          (:name "Waiting"
                           :todo "WAIT"
-                          :order 6)
+                          :order 7)
                          (:discard (:anything t))
                          ))))
          )))
@@ -844,6 +860,7 @@ Get org-roam title for the agenda item.
                       (org-agenda-time-grid nil)
                       (org-super-agenda-groups
                        '((:discard (:not (:category "goal")))
+                         (:discard (:todo "TODO"))
                          (:name "Goals and steps"
                           :auto-map ma/agenda-goal-name
                           :order 1)
@@ -876,6 +893,10 @@ Get org-roam title for the agenda item.
 ***** Incubators view
 
 #+begin_src emacs-lisp
+(defun ma/org-agenda-untagged (item)
+  (when-let ((marker (org-super-agenda--get-marker item)))
+    (not (org-get-tags marker t))))
+
 (setq ma/agenda-incubators-view
       '("u" "Incubators"
         ( ;; A list of sections
@@ -884,8 +905,11 @@ Get org-roam title for the agenda item.
                       (org-agenda-time-grid nil)
                       (org-super-agenda-groups
                        '((:discard (:not (:todo "MAYBE")))
-                         (:auto-tags t
+                         (:name "Untagged"
+                          :pred ma/org-agenda-untagged
                           :order 1)
+                         (:auto-tags t
+                          :order 2)
                          (:discard (:anything t))
                          )))))))
 #+end_src
@@ -1033,6 +1057,7 @@ Get org-roam title for the agenda item.
 
 **** Super agenda
 
+Set up super agenda.
 #+begin_src emacs-lisp
 (use-package! org-super-agenda
   :after org-agenda
@@ -1055,6 +1080,21 @@ Get org-roam title for the agenda item.
               ))
   :config
   (org-super-agenda-mode t))
+#+end_src
+
+**** Origami
+
+Set up origami to run after org-agenda.
+#+begin_src emacs-lisp
+(use-package! origami
+  :hook ((org-agenda-mode . origami-mode)))
+#+end_src
+
+Set up origami keybinding.
+#+begin_src emacs-lisp
+(map! :after (evil-org-agenda origami)
+      :map org-super-agenda-header-map
+      :desc "fold" :g "C-c C-f" #'origami-toggle-node)
 #+end_src
 
 **** Keybindings
@@ -1200,7 +1240,7 @@ Set up C-c keybindings.
 Defininig my (extremenly simple) state machine.
 #+begin_src emacs-lisp
 (setq ma/learning-categories '("book" "course" "article" "video"))
-(setq ma/working-categories '("task" "issue"))
+(setq ma/working-categories '("task" "issue" "goal" "project"))
 
 (defun ma/task-start (state)
   (when (member (org-get-todo-state) '("NEXT" "HOLD"))
@@ -1252,7 +1292,8 @@ I want my hooks to run in specific files only. This macro will automate file nam
   "Run command only in buffer specified by `ma/todo-completion-category'."
   (declare (doc-string 1) (pure t) (side-effect-free t))
   `(lambda (&rest rest)
-     (when (member (org-get-category) ma/todo-completion-categories)
+     (when (or (member (org-get-category) ma/working-categories)
+               (member (org-get-category) ma/learning-categories))
        (interactive)
        (apply ,fn rest))))
 #+end_src
@@ -1292,9 +1333,6 @@ I need to set the next sibling to "NEXT" when the current one is "DONE".
 
 Use what I defined in the todo hooks.
 #+begin_src emacs-lisp
-(after! org
-  (setq ma/todo-completion-categories '("task" "book" "course" "article" "video" "issue")))
-
 (after! org
   (add-hook 'org-after-todo-statistics-hook (todo-completion! 'ma/summary-todo))
   (add-hook 'org-trigger-hook (todo-completion! 'ma/complete)))
